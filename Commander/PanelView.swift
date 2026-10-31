@@ -23,7 +23,9 @@ struct PanelView: View {
                     marksVersion: panel.marksVersion,
                     cursor: panel.cursorIndex,
                     isActive: isActive,
-                    focusTick: workspace.focusTick
+                    focusTick: workspace.focusTick,
+                    scrollRequest: panel.scrollRequest,
+                    edit: panel.edit
                 )
                 // Whole rows only: the spare space sits below the last row.
                 .frame(height: (geometry.size.height / FileTable.rowHeight).rounded(.down) * FileTable.rowHeight)

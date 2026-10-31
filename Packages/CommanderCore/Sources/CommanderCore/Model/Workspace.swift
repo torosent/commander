@@ -11,6 +11,13 @@ public final class Workspace {
     public var message: String?
     public var isGoingToPath = false
     public private(set) var patternBar: PatternBar?
+    public private(set) var pending: PendingOperation?
+    /// These stay until dismissed, oldest first, because a failure shouldn't vanish on a timer or to a later job.
+    public private(set) var reports: [JobReport] = []
+    public var report: JobReport? { reports.first }
+    /// True while the command line has focus, so commands don't take its keystrokes.
+    public var isCommandLineFocused = false
+    public let jobs = JobQueue()
     public private(set) var volumes: [Place] = []
     /// Bumped to hand keyboard focus back to the active table.
     public private(set) var focusTick = 0
@@ -18,10 +25,11 @@ public final class Workspace {
     @ObservationIgnored public var openFile: @MainActor (URL) -> Void = { _ in }
     @ObservationIgnored private var messageTask: Task<Void, Never>?
     @ObservationIgnored private var patternOpens = 0
+    @ObservationIgnored private var planning: Task<Void, Never>?
 
     public init(left: URL, right: URL, source: any FileSource = LocalSource()) {
         panels = [Panel(tabs: [TabState(location: left)], source: source), Panel(tabs: [TabState(location: right)], source: source)]
-        for panel in panels { panel.workspace = self }
+        connect()
     }
 
     /// Restores a saved session. Hidden files come from settings rather than the session.
@@ -36,7 +44,25 @@ public final class Workspace {
         }
         activeIndex = session?.activeIndex == 1 ? 1 : 0
         self.showHidden = showHidden
+        connect()
+    }
+
+    private func connect() {
         for panel in panels { panel.workspace = self }
+        jobs.onFinish = { [weak self] report in self?.finished(report) }
+    }
+
+    private func finished(_ report: JobReport) {
+        for panel in panels { panel.refresh() }
+        if report.needsAttention {
+            reports.append(report)
+        } else {
+            say(report.summary)
+        }
+    }
+
+    public var isTyping: Bool {
+        isGoingToPath || patternBar != nil || isCommandLineFocused || panels.contains { $0.edit != nil }
     }
 
     public var session: Session {
@@ -108,6 +134,105 @@ public final class Workspace {
     /// A preview means nothing once its folder has gone from the panel.
     func folderChanged(in panel: Panel) {
         if patternBar?.panel === panel { cancelPattern() }
+        if let pending, pending.source === panel || pending.destination === panel { cancelOperation() }
+    }
+
+    // MARK: Operations
+
+    /// Plans an operation on the selection, or on `entries` if given. Nothing happens until it's run.
+    public func begin(_ kind: OperationKind, entries: [FileEntry]? = nil, into folder: URL? = nil) {
+        guard pending == nil, planning == nil else { return }
+        let other = panels[1 - activeIndex]
+        let home = entries?.first.flatMap { FileNames.realPath($0.url.deletingLastPathComponent()) }
+        let source = entries == nil ? active : [active, other].first { FileNames.realPath($0.location) == home }
+        let isTransfer = kind == .copy || kind == .move
+        let target = isTransfer ? folder ?? other.location : nil
+        let destination = isTransfer ? panels.first { $0.location.path == target?.path } : nil
+        let sources = entries ?? active.selectionEntries
+        let origin = source?.location
+        planning = Task {
+            let plan = await Task.detached(priority: .userInitiated) { () -> Result<OperationPreview, OperationRefusal> in
+                do throws(OperationRefusal) {
+                    return .success(try OperationPreview.plan(kind, sources: sources, into: target))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            planning = nil
+            // A panel that moved on while this ran no longer shows what the plan describes.
+            guard source?.location == origin, destination == nil || destination?.location.path == target?.path else { return }
+            switch plan {
+            case .success(let preview):
+                pending = PendingOperation(preview: preview, source: source, destination: destination, choice: preview.defaultChoice)
+                showPending(scroll: true)
+            case .failure(let refusal):
+                say(refusal.message)
+            }
+        }
+    }
+
+    /// Waits for a plan to appear. Used by tests.
+    public func planned() async {
+        await planning?.value
+    }
+
+    public func choose(_ choice: ConflictChoice) {
+        pending?.choice = choice
+        showPending(scroll: false)
+    }
+
+    public func cancelOperation() {
+        pending?.source?.clearPreview()
+        pending?.destination?.clearPreview()
+        pending = nil
+    }
+
+    public func runOperation() {
+        guard let pending else { return }
+        cancelOperation()
+        guard pending.preview.runCount(pending.choice) > 0 else {
+            return say("Nothing to do: every item was skipped.")
+        }
+        pending.source?.unmark(pending.preview.items.map(\.source))
+        jobs.add(pending.preview, choice: pending.choice)
+    }
+
+    public func dismissReport() {
+        if !reports.isEmpty { reports.removeFirst() }
+    }
+
+    private func showPending(scroll: Bool) {
+        guard let pending else { return }
+        let (preview, choice) = (pending.preview, pending.choice)
+        if preview.kind != .copy {
+            let leaving = Dictionary(preview.items.map { (FileNames.key($0.source.url), RowPreview.leaving) }) { first, _ in first }
+            pending.source?.showPreview(states: leaving, ghosts: [], kind: preview.kind, scroll: false)
+        }
+        guard let destination = pending.destination else { return }
+        var states: [String: RowPreview] = [:]
+        var ghosts: [FileEntry] = []
+        for item in preview.items {
+            guard let target = item.target else { continue }
+            if let existing = item.existing, choice != .keepBoth {
+                states[FileNames.key(target)] = choice == .skip ? .skipped
+                    : existing.isDirectory ? .merging : .replacing(newer: existing.isNewer)
+            } else if let final = preview.destination(of: item, choice) {
+                ghosts.append(FileEntry(
+                    url: final, fileName: final.lastPathComponent, size: item.source.size,
+                    modified: item.source.modified, isDirectory: item.source.isDirectory, isPackage: item.source.isPackage
+                ))
+                states[FileNames.key(final)] = .incoming
+            }
+        }
+        destination.showPreview(states: states, ghosts: ghosts, kind: preview.kind, scroll: scroll)
+    }
+
+    // MARK: Clipboard
+
+    /// Starts a copy or move of files from the clipboard into the active panel.
+    public func paste(_ urls: [URL], move: Bool) {
+        let entries = urls.compactMap(LocalSource.entry)
+        begin(move ? .move : .copy, entries: entries, into: active.location)
     }
 
     private func previewPattern() {
@@ -165,6 +290,13 @@ public final class Panel {
     public private(set) var queryFailed = false
     /// True while folders are still being measured, so totals may grow.
     public private(set) var isMeasuring = false
+    /// A row name being typed: a new folder, or a rename.
+    public private(set) var edit: EditState?
+    /// The kind of operation being previewed, which sets the colour of preview rows.
+    public private(set) var previewKind: OperationKind?
+    /// Bumped to ask the table to bring `scrollTarget` into view.
+    public private(set) var scrollRequest = 0
+    public private(set) var scrollTarget = 0
 
     @ObservationIgnored weak var workspace: Workspace?
     @ObservationIgnored private let source: any FileSource
@@ -179,6 +311,9 @@ public final class Panel {
     @ObservationIgnored private var measuringPath: String?
     @ObservationIgnored private var markPreview: MarkPreview?
     @ObservationIgnored private var markCounting: Task<Void, Never>?
+    @ObservationIgnored private var rowStates: [String: RowPreview] = [:]
+    @ObservationIgnored private var ghosts: [FileEntry] = []
+    @ObservationIgnored private var draftFolder: FileEntry?
 
     init(tabs: [TabState], source: any FileSource) {
         self.tabs = tabs
@@ -323,17 +458,146 @@ public final class Panel {
 
     /// Rebuilds rows from the listing. The cursor stays on its file, or at the same position if that file went.
     func rebuildRows(cursor: URL? = nil) {
-        // Paths, not URLs: a typed location and a listed one can differ by a trailing slash.
-        let keep = (cursor ?? cursorEntry?.url)?.path
+        let keep = cursor ?? cursorEntry?.url
         let previous = cursorIndex
         rows = tab.rows(showHidden: workspace?.showHidden ?? false)
-        cursorIndex = rows.firstIndex { $0.url.path == keep } ?? min(previous, max(rows.count - 1, 0))
+        mergePreviewRows()
+        cursorIndex = keep.flatMap(row(for:)) ?? min(previous, max(rows.count - 1, 0))
         rowsVersion += 1
         // Marks can't outlive their row, so nothing unseen is ever acted on, such as a file that was just hidden.
         if !tab.marked.isEmpty {
             tabs[tabIndex].marked.formIntersection(rows.map(\.url.path))
         }
         refreshMarks()
+    }
+
+    /// Rows match by name, because one folder can have several paths: /tmp is also /private/tmp.
+    /// The ".." row goes first, or a file named like the parent folder would take its place.
+    private func row(for url: URL) -> Int? {
+        if rows.first?.isParent == true, rows[0].url.path == url.path { return 0 }
+        let key = FileNames.key(url)
+        return rows.firstIndex { !$0.isParent && FileNames.key($0.url) == key }
+    }
+
+    /// Ghosts are placed by binary search, so a preview doesn't re-sort a huge folder,
+    /// and the rows are rebuilt once, so a big preview doesn't shift them for every ghost.
+    private func mergePreviewRows() {
+        let start = tab.parent == nil ? 0 : 1
+        if let draftFolder { rows.insert(draftFolder, at: start) }
+        guard !ghosts.isEmpty else { return }
+        var merged = Array(rows[..<start])
+        merged.reserveCapacity(rows.count + ghosts.count)
+        var next = start
+        for ghost in ghosts.sorted(by: tab.sort.precedes) {
+            var low = next
+            var high = rows.count
+            while low < high {
+                let middle = (low + high) / 2
+                if tab.sort.precedes(rows[middle], ghost) { low = middle + 1 } else { high = middle }
+            }
+            merged += rows[next..<low]
+            merged.append(ghost)
+            next = low
+        }
+        rows = merged + rows[next...]
+    }
+
+    // MARK: Operation previews
+
+    public func previewState(of entry: FileEntry) -> RowPreview? {
+        rowStates.isEmpty || entry.isParent ? nil : rowStates[FileNames.key(entry.url)]
+    }
+
+    func showPreview(states: [String: RowPreview], ghosts: [FileEntry], kind: OperationKind, scroll: Bool) {
+        rowStates = states
+        self.ghosts = ghosts
+        previewKind = kind
+        rebuildRows()
+        guard scroll else { return }
+        // A replacement matters most, so it's what the preview brings into view.
+        let first = rows.firstIndex { if case .replacing = previewState(of: $0) { true } else { false } }
+        if let row = first ?? rows.firstIndex(where: { previewState(of: $0) != nil }) {
+            scrollTarget = row
+            scrollRequest += 1
+        }
+    }
+
+    func clearPreview() {
+        guard previewKind != nil else { return }
+        rowStates = [:]
+        ghosts = []
+        previewKind = nil
+        rebuildRows()
+    }
+
+    /// The marked rows, or else the cursor's row.
+    public var selectionEntries: [FileEntry] {
+        if tab.marked.isEmpty {
+            return cursorEntry.flatMap { $0.isParent ? nil : [$0] } ?? []
+        }
+        return rows.filter { tab.marked.contains($0.url.path) }
+    }
+
+    // MARK: New folders and renames
+
+    public func beginNewFolder() {
+        guard tab.failure == nil, edit == nil, workspace?.pending == nil else { return }
+        let url = FileNames.freeFolder(in: location)
+        let draft = FileEntry(url: url, fileName: url.lastPathComponent, size: nil, modified: nil, isDirectory: true)
+        draftFolder = draft
+        rebuildRows(cursor: url)
+        edit = EditState(kind: .newFolder, text: draft.name)
+    }
+
+    public func beginRename() {
+        guard let entry = cursorEntry, !entry.isParent, edit == nil, workspace?.pending == nil else { return }
+        edit = EditState(kind: .rename(entry.url), text: entry.fileName)
+    }
+
+    public func cancelEdit() {
+        edit = nil
+        if draftFolder != nil {
+            draftFolder = nil
+            rebuildRows()
+        }
+    }
+
+    /// Finishes typing a name. On success it returns any rename made, so it can be undone.
+    public func commitEdit(_ text: String) throws(EditFailure) -> FileRename? {
+        guard let state = edit else { return nil }
+        if let problem = FileNames.problem(with: text) { throw EditFailure(message: problem) }
+        let target = location.appending(path: text)
+        switch state.kind {
+        case .newFolder:
+            do {
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+            } catch {
+                throw EditFailure(message: "\(text) already exists here, or this folder can't be changed.")
+            }
+            cancelEdit()
+            load(cursor: target)
+            return nil
+        case .rename(let source):
+            guard source.lastPathComponent != text else {
+                cancelEdit()
+                return nil
+            }
+            do throws(OperationError) {
+                try FileNames.rename(source, to: target)
+            } catch {
+                throw EditFailure(message: error == .alreadyExists ? "\(text) already exists here." : error.message)
+            }
+            cancelEdit()
+            load(cursor: target)
+            return FileRename(from: source, to: target)
+        }
+    }
+
+    /// Reverses a rename. Returns the rename that undoes it, for redo.
+    public func undo(_ rename: FileRename) throws(OperationError) -> FileRename {
+        try FileNames.rename(rename.to, to: rename.from)
+        load(cursor: rename.from)
+        return FileRename(from: rename.to, to: rename.from)
     }
 
     // MARK: Cursor
@@ -377,6 +641,11 @@ public final class Panel {
 
     private func show(cursor: URL?) {
         endSearch()
+        // A name being typed belongs to the folder it was started in.
+        if edit != nil {
+            cancelEdit()
+            workspace?.returnFocus()
+        }
         workspace?.folderChanged(in: self)
         tabs[tabIndex].entries = []
         tabs[tabIndex].failure = nil
@@ -502,6 +771,11 @@ public final class Panel {
 
     public func clearMarks() {
         tabs[tabIndex].marked = []
+        refreshMarks()
+    }
+
+    func unmark(_ entries: [FileEntry]) {
+        tabs[tabIndex].marked.subtract(entries.map(\.url.path))
         refreshMarks()
     }
 

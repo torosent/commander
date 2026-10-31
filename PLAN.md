@@ -183,20 +183,22 @@ The app starts to feel like Commander, still without changing any files.
 
 The highest-risk milestone, because this is where data can be lost.
 
-- [ ] `OperationPreview` for copy, move and Trash
-- [ ] Preview rows in the destination, scrolled to any conflict
-- [ ] `JobQueue` with progress, cancel and a visible queue
-- [ ] `CopyEngine` on `copyfile(3)` with temp-then-rename
-- [ ] Conflict choices: Replace, Skip, Keep both, with the newer-file default
-- [ ] Keep both checks for a free name instead of assuming one
-- [ ] Copy, move, new folder, Trash, permanent delete
-- [ ] Inline rename with undo
-- [ ] File clipboard and drag and drop
-- [ ] Right-click menu with Open With, acting on the clicked row unless it is part of the marked set
+- [x] `OperationPreview` for copy, move and Trash
+- [x] Preview rows in the destination, scrolled to any conflict
+- [x] `JobQueue` with progress, cancel and a visible queue
+- [x] `CopyEngine` on `copyfile(3)` with temp-then-rename
+- [x] Conflict choices: Replace, Skip, Keep both, with the newer-file default
+- [x] Keep both checks for a free name instead of assuming one
+- [x] Copy, move, new folder, Trash, permanent delete
+- [x] Inline rename with undo
+- [x] File clipboard and drag and drop
+- [x] Right-click menu with Open With, acting on the clicked row unless it is part of the marked set
 
 **Tests:** cancel mid-file, crash safety of overwrites, symlinks, extended attributes, resource forks, APFS clones, cross-volume moves, a full destination, permission failures, copy onto self, folder into itself. Use disk images for HFS+, case-sensitive APFS and FAT.
 
 **Exit:** data safety rules 1 to 7 and 10 are covered by passing tests, and a copy of 10k mixed files verifies byte-identical.
+
+**Status:** code complete, with 151 tests passing and the 10k copy byte-identical. Checked in the running app: preview, conflict keys, copy, cross-volume move, progress, Stop, Stop and Quit, new folder, rename, undo, Trash and permanent delete. Not yet exercised by hand: clipboard paste, Move Here, drag and drop, the right-click menu, and real keyboard shortcuts (⌘ keys, F-keys, ⇧F10).
 
 ### M4: Command layer
 

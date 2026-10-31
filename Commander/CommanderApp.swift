@@ -2,8 +2,32 @@ import AppKit
 import CommanderCore
 import SwiftUI
 
+/// Quitting mid-job has to be a choice, and a stopped job needs a moment to clear its temp files.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var workspace: Workspace?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let jobs = workspace?.jobs, jobs.current != nil else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "A job is still running"
+        alert.informativeText = "Quitting stops it and cancels any jobs waiting. Items already finished stay where they are."
+        alert.addButton(withTitle: "Keep Running")
+        alert.addButton(withTitle: "Stop and Quit")
+        // The app stays stuck on this question, so it must stay in view after switching away.
+        alert.window.hidesOnDeactivate = false
+        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        jobs.stopAll()
+        Task {
+            await jobs.finished()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+}
+
 @main
 struct CommanderApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var workspace: Workspace = {
         let workspace = Workspace(
             session: Preferences.savedSession,
@@ -19,6 +43,7 @@ struct CommanderApp: App {
         Window("Commander", id: "main") {
             ContentView(workspace: workspace)
                 .frame(minWidth: 1000, minHeight: 600)
+                .onAppear { appDelegate.workspace = workspace }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 900)
@@ -37,11 +62,33 @@ private struct BrowseCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { panel.newTab() }.keyboardShortcut("t")
+            Button("New Folder") { panel.beginNewFolder() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(workspace.isTyping)
         }
         CommandGroup(replacing: .saveItem) {
             Button("Close Tab") { panel.closeTab() }
                 .keyboardShortcut("w")
                 .disabled(panel.tabs.count < 2)
+            Divider()
+            operationButton("Copy to Other Panel", .copy).keyboardShortcut("c", modifiers: [.command, .shift])
+            operationButton("Move to Other Panel", .move).keyboardShortcut("m", modifiers: [.command, .shift])
+            Button("Rename") { panel.beginRename() }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+                .disabled(workspace.isTyping)
+            Button("Show Actions") { NSApp.sendAction(#selector(KeyTable.showActions(_:)), to: nil, from: nil) }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+            Divider()
+            // ⌘⌫ means delete to line start in a text field, so these step aside while typing.
+            operationButton("Move to Trash", .trash).keyboardShortcut(.delete)
+            operationButton("Delete Permanently…", .delete).keyboardShortcut(.delete, modifiers: [.command, .option])
+            Divider()
+            Button("Stop Job", action: workspace.jobs.stopCurrent).disabled(workspace.jobs.current == nil)
+        }
+        CommandGroup(after: .pasteboard) {
+            Button("Move Here") { workspace.paste(Pasteboard.fileURLs(), move: true) }
+                .keyboardShortcut("v", modifiers: [.command, .option])
+                .disabled(workspace.isTyping)
         }
         CommandGroup(after: .toolbar) {
             Button("Quick Look", action: QuickLook.toggle).keyboardShortcut("y")
@@ -81,6 +128,10 @@ private struct BrowseCommands: Commands {
             Divider()
             Button("Open Full Disk Access Settings", action: FullDiskAccess.open)
         }
+    }
+
+    private func operationButton(_ title: String, _ kind: OperationKind) -> some View {
+        Button(title) { workspace.begin(kind) }.disabled(workspace.isTyping)
     }
 
     private func sortButton(_ title: String, _ key: FileSort.Key, _ shortcut: KeyEquivalent) -> some View {

@@ -17,6 +17,12 @@ import Testing
         #expect(listing.freeSpace != nil)
     }
 
+    @Test func reportsFreeSpaceOnOtherVolumes() async throws {
+        let image = try DiskImage(format: "APFS")
+        let listing = try await source.list(image.mount, sort: FileSort())
+        #expect((listing.freeSpace ?? 0) > 0)
+    }
+
     @Test func flagsHiddenFiles() async throws {
         let temp = try TempFolder()
         try temp.file(".secret")

@@ -21,14 +21,16 @@ public struct FileSort: Hashable, Codable, Sendable {
     /// Folders always come first. `localizedStandardCompare` gives Finder's order: natural numbers,
     /// case-insensitive, and blind to Unicode normalization.
     public func sorted(_ entries: [FileEntry]) -> [FileEntry] {
-        entries.sorted { a, b in
-            if a.opensAsFolder != b.opensAsFolder { return a.opensAsFolder }
-            let order = compare(a, b)
-            if order == .orderedSame {
-                return a.fileName.localizedStandardCompare(b.fileName) == .orderedAscending
-            }
-            return (order == .orderedAscending) == ascending
+        entries.sorted(by: precedes)
+    }
+
+    public func precedes(_ a: FileEntry, _ b: FileEntry) -> Bool {
+        if a.opensAsFolder != b.opensAsFolder { return a.opensAsFolder }
+        let order = compare(a, b)
+        if order == .orderedSame {
+            return a.fileName.localizedStandardCompare(b.fileName) == .orderedAscending
         }
+        return (order == .orderedAscending) == ascending
     }
 
     private func compare(_ a: FileEntry, _ b: FileEntry) -> ComparisonResult {

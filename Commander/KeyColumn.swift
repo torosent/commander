@@ -40,13 +40,13 @@ struct KeyColumn: View {
             }
             .frame(maxHeight: .infinity)
 
-            key("Copy", "F5", "doc.on.doc", tone: .copy, disabled: nothingSelected, compact: compact)
+            key("Copy", "F5", "doc.on.doc", tone: .copy, disabled: nothingSelected, compact: compact) { workspace.begin(.copy) }
                 .padding(.vertical, 6)
 
             VStack(spacing: compact ? 5 : 6) {
-                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected, compact: compact)
-                key("New", "F7", "plus", compact: compact)
-                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected, compact: compact)
+                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected, compact: compact) { workspace.begin(.move) }
+                key("New", "F7", "plus", compact: compact) { panel.beginNewFolder() }
+                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected, compact: compact) { workspace.begin(.trash) }
                 rule
                 key("Rename", "⌘⇧R", "character.cursor.ibeam", compact: compact)
                 key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact)
@@ -55,6 +55,16 @@ struct KeyColumn: View {
             .frame(maxHeight: .infinity)
         }
         .padding(.vertical, 8)
+    }
+
+    /// A key stays down while its operation is previewed or running.
+    private func isHeld(_ title: String) -> Bool {
+        guard let kind = workspace.pending?.preview.kind ?? workspace.jobs.current?.kind else { return false }
+        switch kind {
+        case .copy: return title == "Copy"
+        case .move: return title == "Move"
+        case .trash, .delete: return title == "Trash"
+        }
     }
 
     private var rule: some View {
@@ -73,7 +83,7 @@ struct KeyColumn: View {
                 .font(.system(size: 14, weight: .medium))
                 .accessibilityHidden(true)
         }
-        .buttonStyle(DomeKeyStyle(title: "\(title) \(shortcut)", tone: tone, compact: compact))
+        .buttonStyle(DomeKeyStyle(title: "\(title) \(shortcut)", tone: tone, compact: compact, isHeld: isHeld(title)))
         .disabled(disabled)
         .accessibilityLabel(title)
         .accessibilityHint(shortcut)
@@ -141,12 +151,13 @@ struct DomeKeyStyle: ButtonStyle {
     let title: String
     let tone: KeyTone
     var compact = false
+    var isHeld = false
 
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
-        let pressed = configuration.isPressed
+        let pressed = configuration.isPressed || isHeld
         let size: CGFloat = compact ? 30 : 34
         VStack(spacing: 4) {
             configuration.label

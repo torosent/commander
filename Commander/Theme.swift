@@ -14,6 +14,12 @@ enum Palette {
     static let key = adaptive(dark: 0x3A3834, light: 0xC9C5BA)
     static let keyHigh = adaptive(dark: 0x55524C, light: 0xECE9E1)
     static let keyInk = adaptive(dark: 0xECE8DE, light: 0x1E1D1B)
+    static let goText = adaptive(dark: 0x86DC94, light: 0x1B6A28)
+    static let moveText = adaptive(dark: 0xF7CF58, light: 0x6E5000)
+    static let removeText = adaptive(dark: 0xF6A094, light: 0xA02719)
+    static let goWash = color(0x3FA34D).withAlphaComponent(0.2)
+    static let moveWash = color(0xF2B705).withAlphaComponent(0.2)
+    static let removeWash = color(0xD8412F).withAlphaComponent(0.2)
 
     static func color(_ hex: UInt32) -> NSColor {
         NSColor(
@@ -42,6 +48,7 @@ enum Theme {
     static let key = Color(nsColor: Palette.key)
     static let keyHigh = Color(nsColor: Palette.keyHigh)
     static let keyInk = Color(nsColor: Palette.keyInk)
+    static let removeText = Color(nsColor: Palette.removeText)
 
     static let body = Font.system(size: 12).monospacedDigit()
     static let label = Font.system(size: 11).monospacedDigit()

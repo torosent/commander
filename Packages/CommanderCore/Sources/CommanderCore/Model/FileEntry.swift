@@ -42,6 +42,11 @@ public struct FileEntry: Identifiable, Hashable, Sendable {
 
     public var fileName: String { ext.isEmpty ? name : "\(name).\(ext)" }
 
+    /// The name and extension of a typed file name.
+    public static func nameParts(_ fileName: String) -> (name: String, ext: String) {
+        split(fileName)
+    }
+
     /// Splits at the last dot, keeping `.tar.gz` style pairs together. A leading dot isn't a separator.
     static func split(_ fileName: String) -> (name: String, ext: String) {
         guard let dot = fileName.lastIndex(of: "."), dot != fileName.startIndex else { return (fileName, "") }

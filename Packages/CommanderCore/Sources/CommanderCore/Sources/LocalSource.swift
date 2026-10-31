@@ -22,7 +22,7 @@ public struct LocalSource: FileSource {
         return await withTaskCancellationHandler { await measuring.value } onCancel: { measuring.cancel() }
     }
 
-    private static func measure(_ url: URL) -> Int64? {
+    static func measure(_ url: URL) -> Int64? {
         // The enumerator doesn't descend into symlinks, so a link can't count a folder twice or loop.
         guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else {
             return nil
@@ -53,11 +53,15 @@ public struct LocalSource: FileSource {
             if let entry = entry(url) { entries.append(entry) }
         }
         try Task.checkCancellation()
-        let free = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return Listing(entries: sort.sorted(entries), freeSpace: free?.volumeAvailableCapacityForImportantUsage)
+        let free = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        // The important-usage figure counts purgeable space, but reads 0 on volumes that don't track it.
+        let important = free?.volumeAvailableCapacityForImportantUsage ?? 0
+        let freeSpace = important > 0 ? important : free?.volumeAvailableCapacity.map(Int64.init)
+        return Listing(entries: sort.sorted(entries), freeSpace: freeSpace)
     }
 
-    private static func entry(_ url: URL) -> FileEntry? {
+    /// Describes one file, for files arriving from the clipboard or a drag.
+    public static func entry(_ url: URL) -> FileEntry? {
         guard let values = try? url.resourceValues(forKeys: Set(keys)) else { return nil }
         let isSymlink = values.isSymbolicLink ?? false
         // A link to a folder should navigate like a folder. Listing never recurses, so following one here is safe.

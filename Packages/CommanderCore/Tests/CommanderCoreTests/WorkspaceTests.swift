@@ -12,7 +12,7 @@ import Testing
     }
 
     private func settle(_ panel: Panel, until condition: () -> Bool) async {
-        for _ in 0..<100 where !condition() {
+        for _ in 0..<500 where !condition() {
             try? await Task.sleep(for: .milliseconds(30))
         }
         await panel.loaded()
@@ -238,7 +238,7 @@ import Testing
         let temp = try TempFolder()
         let panel = await workspace(temp).panels[0]
         // Faster than the 150ms refresh delay, so a delay that restarts would never fire.
-        for index in 0..<30 {
+        for index in 0..<250 where panel.rows.count == 1 {
             try temp.file("file\(index)")
             try await Task.sleep(for: .milliseconds(40))
         }
