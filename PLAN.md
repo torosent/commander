@@ -198,7 +198,7 @@ The highest-risk milestone, because this is where data can be lost.
 
 **Exit:** data safety rules 1 to 7 and 10 are covered by passing tests, and a copy of 10k mixed files verifies byte-identical.
 
-**Status:** code complete, with 151 tests passing and the 10k copy byte-identical. Checked in the running app: preview, conflict keys, copy, cross-volume move, progress, Stop, Stop and Quit, new folder, rename, undo, Trash and permanent delete. Not yet exercised by hand: clipboard paste, Move Here, drag and drop, the right-click menu, and real keyboard shortcuts (⌘ keys, F-keys, ⇧F10).
+**Status:** code complete, with 153 tests passing and the 10k copy byte-identical. Everything has been tried in the running app, including F-keys, ⌘ shortcuts, clipboard paste, Move Here, the right-click menu, Open With, Quick Look and drag and drop. One gap: Option and Command drags couldn't be simulated, so forcing a copy or a move while dragging still needs a hand check.
 
 ### M4: Command layer
 

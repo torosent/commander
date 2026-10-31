@@ -33,8 +33,13 @@ public enum OperationRefusal: Error, Equatable, Sendable {
 public struct PlannedItem: Identifiable, Sendable {
     /// What's already at the destination.
     public struct Existing: Sendable {
+        public enum Age: Equatable, Sendable {
+            case older, same, newer
+        }
+
         public var isDirectory: Bool
-        public var isNewer: Bool
+        public var age: Age
+        public var isNewer: Bool { age == .newer }
     }
 
     public let source: FileEntry
@@ -126,9 +131,10 @@ public struct OperationPreview: Sendable {
         var info = stat()
         guard lstat(target.path, &info) == 0 else { return nil }
         let modified = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec))
+        let gap = modified.timeIntervalSince(source.modified ?? .distantPast)
         return PlannedItem.Existing(
             isDirectory: info.st_mode & S_IFMT == S_IFDIR,
-            isNewer: modified.timeIntervalSince(source.modified ?? .distantPast) >= 1
+            age: gap >= 1 ? .newer : gap <= -1 ? .older : .same
         )
     }
 }
@@ -199,7 +205,7 @@ public enum FileNames {
 /// How a row looks while an operation is previewed.
 public enum RowPreview: Equatable, Sendable {
     case incoming
-    case replacing(newer: Bool)
+    case replacing(PlannedItem.Existing.Age)
     case merging
     case skipped
     case leaving

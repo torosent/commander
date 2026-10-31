@@ -258,7 +258,9 @@ struct FileTable: NSViewRepresentable {
             } else {
                 tableView.setDropRow(-1, dropOperation: .on)
             }
-            return view.dropOperation(info)
+            let operation = view.dropOperation(info)
+            // Holding ⌘ narrows the mask to generic, which a specific answer would fall outside.
+            return info.draggingSourceOperationMask.contains(operation) ? operation : .generic
         }
 
         func tableView(
@@ -414,8 +416,9 @@ extension FileTable {
 
     /// Finder's rule: move within a volume and copy between them. ⌥ forces a copy and ⌘ forces a move.
     func dropOperation(_ info: any NSDraggingInfo) -> NSDragOperation {
-        let mask = info.draggingSourceOperationMask
-        if mask == .copy || mask == .move { return mask }
+        let held = NSEvent.modifierFlags
+        if held.contains(.option) { return .copy }
+        if held.contains(.command) { return .move }
         guard let first = Pasteboard.fileURLs(info.draggingPasteboard).first else { return [] }
         let volume = { (url: URL) in (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject }
         return volume(first) == volume(workspace.panels[index].location) ? .move : .copy
@@ -515,8 +518,13 @@ private struct RowStyle {
             (wash, ink, symbol) = (flow, flowInk, "plus")
         case .merging:
             (wash, ink, tag, symbol) = (flow, flowInk, "merges", "plus")
-        case .replacing(let newer):
-            (wash, ink, tag, symbol) = (Palette.removeWash, Palette.removeText, newer ? "replaces newer" : "replaces older", "exclamationmark.triangle")
+        case .replacing(let age):
+            let note = switch age {
+            case .older: "replaces older"
+            case .same: "replaces"
+            case .newer: "replaces newer"
+            }
+            (wash, ink, tag, symbol) = (Palette.removeWash, Palette.removeText, note, "exclamationmark.triangle")
         case .skipped:
             (ink, tag) = (Palette.dim, "skipped")
         case .leaving:
@@ -546,7 +554,7 @@ private enum Column: String, CaseIterable {
 
 final class KeyTable: NSTableView {
     override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        [.copy, .move]
+        [.copy, .move, .generic]
     }
 
     var onKey: (NSEvent) -> Bool = { _ in false }
@@ -600,9 +608,11 @@ final class KeyTable: NSTableView {
     override func mouseDragged(with event: NSEvent) {
         guard let start = dragStart else { return }
         dragStart = nil
+        let point = convert(start.event.locationInWindow, from: nil)
+        let frame = NSRect(x: point.x - 16, y: point.y - 16, width: 32, height: 32)
         let items = dragURLs(start.row).map { url in
             let item = NSDraggingItem(pasteboardWriter: url as NSURL)
-            item.setDraggingFrame(rect(ofRow: start.row), contents: NSWorkspace.shared.icon(forFile: url.path))
+            item.setDraggingFrame(frame, contents: NSWorkspace.shared.icon(forFile: url.path))
             return item
         }
         guard !items.isEmpty else { return }
@@ -707,10 +717,18 @@ private final class CursorRowView: NSTableRowView {
     var isActivePanel = false { didSet { needsDisplay = true } }
     var wash: NSColor?
 
+    override var isTargetForDropOperation: Bool {
+        didSet { needsDisplay = true }
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         if let wash {
             wash.setFill()
             bounds.fill(using: .sourceOver)
+        }
+        if isTargetForDropOperation {
+            Palette.ink.setStroke()
+            NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)).stroke()
         }
         guard isCursor else { return }
         if isActivePanel {

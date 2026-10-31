@@ -152,11 +152,15 @@ private struct OperationBar: View {
     private var preview: OperationPreview { pending.preview }
     private var count: Int { preview.runCount(pending.choice) }
     private var items: String { "\(count) item\(count == 1 ? "" : "s")" }
+    private var isReplacing: Bool { pending.choice == .replace && !preview.conflicts.isEmpty }
 
     var body: some View {
         HStack(spacing: 12) {
             Text(title).fontWeight(.semibold).foregroundStyle(Theme.ink).lineLimit(1)
-            Text(detail).foregroundStyle(pending.choice == .replace && !preview.conflicts.isEmpty ? Theme.removeText : Theme.dim).lineLimit(1)
+            if isReplacing {
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.removeText).accessibilityHidden(true)
+            }
+            Text(detail).foregroundStyle(isReplacing ? Theme.removeText : Theme.dim).lineLimit(1)
             Spacer()
             if !preview.conflicts.isEmpty {
                 Picker("If a file exists", selection: Binding(get: { pending.choice }, set: workspace.choose)) {
@@ -212,7 +216,7 @@ private struct OperationBar: View {
         case .trash: parts.append("You can restore these from the Trash")
         case .delete: parts.append("This can't be undone")
         case .copy, .move:
-            parts.append("\(preview.items.count - conflicts) new")
+            if preview.items.count > conflicts { parts.append("\(preview.items.count - conflicts) new") }
             if conflicts > 0 {
                 let what = switch pending.choice {
                 case .replace: "replaced"

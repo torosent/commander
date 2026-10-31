@@ -85,7 +85,7 @@ import Testing
         await app.planned()
         #expect(right.scrollRequest == before + 1)
         #expect(right.rows[right.scrollTarget].name == "shared")
-        #expect(right.previewState(of: right.rows[right.scrollTarget]) == .replacing(newer: false))
+        #expect(right.previewState(of: right.rows[right.scrollTarget]) == .replacing(.older))
         app.cancelOperation()
     }
 
@@ -441,6 +441,34 @@ import Testing
         left.refresh()
         await left.loaded()
         #expect(left.cursorIndex == 0)
+    }
+
+    @Test func cancellingANewFolderPutsTheCursorBack() async throws {
+        let temp = try TempFolder()
+        let (_, left, _) = try await setup(temp)
+        try temp.folder("a/tree")
+        try temp.file("a/one")
+        await reload(left)
+        left.setCursor(2)
+        left.beginNewFolder()
+        left.cancelEdit()
+        #expect(left.cursorEntry?.name == "one")
+    }
+
+    @Test func aDestinationFromTheSameMomentIsNeitherOlderNorNewer() async throws {
+        let temp = try TempFolder()
+        let (app, left, right) = try await setup(temp)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        for path in ["a/one", "b/one"] {
+            let file = try temp.file(path)
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: file.path)
+        }
+        await reload(left, right)
+        left.setCursor(1)
+        app.begin(.copy)
+        await app.planned()
+        #expect(right.previewState(of: right.rows[1]) == .replacing(.same))
+        app.cancelOperation()
     }
 
     @Test func jobsRunOneAtATimeInOrder() async throws {

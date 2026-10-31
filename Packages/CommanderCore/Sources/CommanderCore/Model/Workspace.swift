@@ -215,7 +215,7 @@ public final class Workspace {
             guard let target = item.target else { continue }
             if let existing = item.existing, choice != .keepBoth {
                 states[FileNames.key(target)] = choice == .skip ? .skipped
-                    : existing.isDirectory ? .merging : .replacing(newer: existing.isNewer)
+                    : existing.isDirectory ? .merging : .replacing(existing.age)
             } else if let final = preview.destination(of: item, choice) {
                 ghosts.append(FileEntry(
                     url: final, fileName: final.lastPathComponent, size: item.source.size,
@@ -314,6 +314,7 @@ public final class Panel {
     @ObservationIgnored private var rowStates: [String: RowPreview] = [:]
     @ObservationIgnored private var ghosts: [FileEntry] = []
     @ObservationIgnored private var draftFolder: FileEntry?
+    @ObservationIgnored private var cursorBeforeDraft: URL?
 
     init(tabs: [TabState], source: any FileSource) {
         self.tabs = tabs
@@ -545,6 +546,7 @@ public final class Panel {
         let url = FileNames.freeFolder(in: location)
         let draft = FileEntry(url: url, fileName: url.lastPathComponent, size: nil, modified: nil, isDirectory: true)
         draftFolder = draft
+        cursorBeforeDraft = cursorEntry?.url
         rebuildRows(cursor: url)
         edit = EditState(kind: .newFolder, text: draft.name)
     }
@@ -558,7 +560,7 @@ public final class Panel {
         edit = nil
         if draftFolder != nil {
             draftFolder = nil
-            rebuildRows()
+            rebuildRows(cursor: cursorBeforeDraft)
         }
     }
 
