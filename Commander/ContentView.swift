@@ -5,12 +5,14 @@ import SwiftUI
 struct ContentView: View {
     let workspace: Workspace
 
+    @AppStorage(Preferences.themeKey) private var theme = AppTheme.system
+
     var body: some View {
         VStack(spacing: 0) {
             TitleStrip()
             HStack(spacing: 0) {
                 PanelView(workspace: workspace, index: 0)
-                KeyColumn()
+                KeyColumn(workspace: workspace)
                 PanelView(workspace: workspace, index: 1)
             }
             StatusBar(workspace: workspace)
@@ -20,6 +22,16 @@ struct ContentView: View {
         .foregroundStyle(Theme.ink)
         .background(Theme.caseColor)
         .ignoresSafeArea()
+        .background(WindowFrameSaver())
+        .onReceive(NSApplication.shared.publisher(for: \.isActive).dropFirst()) { _ in Preferences.save(workspace.session) }
+        // The window can close without the app ever going inactive, and this view goes with it.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            Preferences.save(workspace.session)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            Preferences.save(workspace.session)
+        }
+        .onChange(of: theme, initial: true) { _, theme in NSApp.appearance = theme.appearance }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in
             workspace.refreshVolumes()
         }
@@ -57,6 +69,8 @@ private struct StatusBar: View {
         Group {
             if workspace.isGoingToPath {
                 GoToBar(workspace: workspace)
+            } else if let bar = workspace.patternBar {
+                PatternEntryBar(workspace: workspace, bar: bar).id(bar.id)
             } else if let message = workspace.message {
                 HStack {
                     Text(message)
@@ -65,8 +79,9 @@ private struct StatusBar: View {
             } else {
                 HStack(spacing: 12) {
                     Text("Tab switches panel")
-                    Text("⌘⇧G goes to a path")
-                    Text("⌘⇧. shows hidden files")
+                    Text("Space marks")
+                    Text("Type to find")
+                    Text("F3 previews")
                     Spacer()
                 }
             }
@@ -76,6 +91,38 @@ private struct StatusBar: View {
         .frame(height: 36)
         .background(Theme.deck)
         .overlay(alignment: .top) { Theme.rim.frame(height: 1) }
+    }
+}
+
+/// Marks update as you type, so the result shows before it's applied.
+private struct PatternEntryBar: View {
+    let workspace: Workspace
+    let bar: PatternBar
+
+    @State private var text = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark").foregroundStyle(Theme.ink).accessibilityHidden(true)
+            Text(bar.marks ? "Mark" : "Unmark").fontWeight(.semibold).foregroundStyle(Theme.ink)
+            TextField("Pattern", text: $text, prompt: Text("*.js, *.ts"))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(width: 240)
+                .focused($isFocused)
+                .onChange(of: text) { _, text in workspace.updatePattern(text) }
+                .onSubmit(workspace.applyPattern)
+                .onExitCommand(perform: workspace.cancelPattern)
+            Text("\(bar.panel.markedCount.formatted()) marked")
+            Spacer()
+            Button("Cancel", action: workspace.cancelPattern)
+            Button("Apply", action: workspace.applyPattern)
+        }
+        .onAppear {
+            text = bar.text
+            isFocused = true
+        }
     }
 }
 
@@ -119,6 +166,19 @@ private struct GoToBar: View {
     private func close() {
         workspace.isGoingToPath = false
         workspace.returnFocus()
+    }
+}
+
+/// Saves and restores the window's size and position.
+private struct WindowFrameSaver: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { FrameView() }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class FrameView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.setFrameAutosaveName("Commander")
+        }
     }
 }
 

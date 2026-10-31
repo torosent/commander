@@ -3,6 +3,12 @@ import SwiftUI
 
 /// The column between the panels. Copy stays on the vertical centre at every window height.
 struct KeyColumn: View {
+    let workspace: Workspace
+
+    private var panel: Panel { workspace.active }
+    private var nothingSelected: Bool { panel.selectionCount == 0 }
+    private var arrow: String { workspace.activeIndex == 0 ? "arrow.right" : "arrow.left" }
+
     var body: some View {
         // GeometryReader takes the offered height, so the keys can never push the window taller.
         GeometryReader { geometry in
@@ -20,23 +26,27 @@ struct KeyColumn: View {
     private func column(compact: Bool) -> some View {
         VStack(spacing: 0) {
             VStack(spacing: compact ? 5 : 6) {
-                SelectionSummary(compact: compact)
+                SelectionSummary(
+                    count: panel.selectionCount, size: panel.selectionSize,
+                    isPartial: panel.isMeasuring, arrow: arrow, compact: compact
+                )
                 Spacer(minLength: 0)
-                key("Compress", "⌘⇧P", "archivebox", disabled: true, compact: compact)
+                key("Compress", "⌘⇧P", "archivebox", disabled: nothingSelected, compact: compact)
+                // Stays off until archives exist in milestone 6.
                 key("Extract", "⌘⇧U", "archivebox.fill", disabled: true, compact: compact)
                 rule
-                key("View", "F3", "eye", compact: compact)
+                key("View", "F3", "eye", disabled: panel.cursorEntry?.isParent != false, compact: compact, action: QuickLook.toggle)
                 key("Edit", "F4", "pencil", compact: compact)
             }
             .frame(maxHeight: .infinity)
 
-            key("Copy", "F5", "doc.on.doc", tone: .copy, disabled: true, compact: compact)
+            key("Copy", "F5", "doc.on.doc", tone: .copy, disabled: nothingSelected, compact: compact)
                 .padding(.vertical, 6)
 
             VStack(spacing: compact ? 5 : 6) {
-                key("Move", "F6", "arrow.right", tone: .move, disabled: true, compact: compact)
+                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected, compact: compact)
                 key("New", "F7", "plus", compact: compact)
-                key("Trash", "F8", "trash", tone: .trash, disabled: true, compact: compact)
+                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected, compact: compact)
                 rule
                 key("Rename", "⌘⇧R", "character.cursor.ibeam", compact: compact)
                 key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact)
@@ -53,9 +63,12 @@ struct KeyColumn: View {
 
     private func key(
         _ title: String, _ shortcut: String, _ symbol: String,
-        tone: KeyTone = .neutral, disabled: Bool = false, compact: Bool
+        tone: KeyTone = .neutral, disabled: Bool = false, compact: Bool,
+        action: (() -> Void)? = nil
     ) -> some View {
-        Button {} label: {
+        Button {
+            if let action { action() } else { workspace.notBuilt(title) }
+        } label: {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .accessibilityHidden(true)
@@ -68,21 +81,27 @@ struct KeyColumn: View {
 }
 
 private struct SelectionSummary: View {
+    let count: Int
+    let size: Int64
+    let isPartial: Bool
+    let arrow: String
     let compact: Bool
 
     var body: some View {
         VStack(spacing: compact ? 2 : 5) {
-            Text("0").font(.system(size: 20, weight: .semibold).monospacedDigit())
+            Text(count.formatted()).font(.system(size: 20, weight: .semibold).monospacedDigit())
             if !compact {
-                Text(FileSize.format(0)).font(Theme.label).foregroundStyle(Theme.dim)
+                Text(FileSize.format(size) + (isPartial ? "…" : "")).font(Theme.label).foregroundStyle(Theme.dim)
             }
-            Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
+            Image(systemName: arrow).font(.system(size: 15, weight: .semibold))
         }
         .padding(.bottom, compact ? 4 : 8)
         .frame(width: 60)
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Nothing selected")
+        .accessibilityLabel(
+            count == 0 ? "Nothing selected" : "\(count) selected, \(isPartial ? "at least " : "")\(FileSize.format(size))"
+        )
     }
 }
 

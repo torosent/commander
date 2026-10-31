@@ -17,6 +17,24 @@ public struct LocalSource: FileSource {
         DirectoryWatch(url, onChange: onChange)
     }
 
+    public func folderSize(_ url: URL) async -> Int64? {
+        let measuring = Task.detached(priority: .utility) { Self.measure(url) }
+        return await withTaskCancellationHandler { await measuring.value } onCancel: { measuring.cancel() }
+    }
+
+    private static func measure(_ url: URL) -> Int64? {
+        // The enumerator doesn't descend into symlinks, so a link can't count a folder twice or loop.
+        guard let walker = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return nil
+        }
+        var total: Int64 = 0
+        for case let file as URL in walker {
+            if Task.isCancelled { return nil }
+            total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+        return total
+    }
+
     private static let keys: [URLResourceKey] = [
         .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .isHiddenKey, .fileSizeKey, .contentModificationDateKey,
     ]

@@ -4,6 +4,12 @@ import Foundation
 public protocol FileSource: Sendable {
     func list(_ url: URL, sort: FileSort) async throws(ListingError) -> Listing
     func watch(_ url: URL, onChange: @escaping @Sendable (FolderChange) -> Void) -> (any FileWatch)?
+    /// Total size of a folder's files, or nil if it couldn't be measured.
+    func folderSize(_ url: URL) async -> Int64?
+}
+
+public extension FileSource {
+    func folderSize(_ url: URL) async -> Int64? { nil }
 }
 
 public enum FolderChange: Sendable {

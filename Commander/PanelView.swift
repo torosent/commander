@@ -20,6 +20,7 @@ struct PanelView: View {
                     index: index,
                     rows: panel.rows,
                     version: panel.rowsVersion,
+                    marksVersion: panel.marksVersion,
                     cursor: panel.cursorIndex,
                     isActive: isActive,
                     focusTick: workspace.focusTick
@@ -205,9 +206,16 @@ private struct Footer: View {
 
     var body: some View {
         HStack {
-            Text(summary)
-            Spacer()
-            Text(FileSize.format(panel.visibleSize))
+            if panel.query.isEmpty {
+                Text(summary)
+                Spacer()
+                Text(FileSize.format(panel.visibleSize))
+            } else {
+                Image(systemName: "magnifyingglass").font(.system(size: 10)).accessibilityHidden(true)
+                Text(panel.query).foregroundStyle(Theme.ink).fontWeight(.semibold)
+                Spacer()
+                if panel.queryFailed { Text("No match") }
+            }
         }
         .foregroundStyle(Theme.dim)
         .padding(.horizontal, 8)

@@ -74,13 +74,15 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | Mark or unmark by pattern | + / - |
 | Invert marks | * |
 | Mark all | ⌘A |
+| Clear marks or end a search | Esc |
+| Quick Look | F3 or ⌘Y |
 | Open | Return |
 | Up a folder | Backspace or ⌘↑ |
 | Open a package as a folder | ⌘↓ |
 | Refresh | ⌘R |
 | Back / forward | ⌘[ / ⌘] |
 | Go to path | ⌘⇧G |
-| View beside | F3 or ⌘Y |
+| View beside (M4) | F3 or ⌘Y |
 | Edit | F4 or ⌘E |
 | Copy to other panel | F5 or ⌘⇧C |
 | Move to other panel | F6 or ⌘⇧M |
@@ -164,16 +166,16 @@ A read-only file browser you can drive without the mouse.
 
 The app starts to feel like Commander, still without changing any files.
 
-- [ ] Marking with Space, ⌘A, mark by pattern and invert
-- [ ] Live pattern preview in the status bar
-- [ ] Quick search by typing, with a no-match state
-- [ ] Folder size calculation in the background
-- [ ] Key column with counts, direction arrow and disabled states
-- [ ] Native menu bar with every command
-- [ ] Session restore for tabs, folders and window size
-- [ ] Quick Look on F3
-- [ ] Light and dark themes
-- [ ] Settings window for theme, default editor and hidden-files default
+- [x] Marking with Space, ⌘A, mark by pattern and invert
+- [x] Live pattern preview in the status bar
+- [x] Quick search by typing, with a no-match state
+- [x] Folder size calculation in the background
+- [x] Key column with counts, direction arrow and disabled states
+- [x] Native menu bar with every command
+- [x] Session restore for tabs, folders and window size
+- [x] Quick Look on F3
+- [x] Light and dark themes
+- [x] Settings window for theme, default editor and hidden-files default
 
 **Exit:** every read-only command works from the keyboard and the menu bar, in both themes, and state survives a relaunch.
 

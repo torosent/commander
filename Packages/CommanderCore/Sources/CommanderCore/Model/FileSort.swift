@@ -1,7 +1,7 @@
 import Foundation
 
-public struct FileSort: Hashable, Sendable {
-    public enum Key: CaseIterable, Sendable {
+public struct FileSort: Hashable, Codable, Sendable {
+    public enum Key: String, CaseIterable, Codable, Sendable {
         case name, ext, size, modified
     }
 

@@ -16,6 +16,9 @@ public struct TabState: Sendable {
     public var failure: ListingError?
     /// Where the cursor was when this tab was last left.
     public var savedCursor: URL?
+    /// Paths rather than URLs, so a trailing slash can't make one file look like two.
+    public var marked: Set<String> = []
+    public var folderSizes: [String: Int64] = [:]
 
     public init(location: URL) {
         self.location = location

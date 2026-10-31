@@ -5,8 +5,11 @@ import SwiftUI
 @main
 struct CommanderApp: App {
     @State private var workspace: Workspace = {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let workspace = Workspace(left: home, right: home)
+        let workspace = Workspace(
+            session: Preferences.savedSession,
+            fallback: FileManager.default.homeDirectoryForCurrentUser,
+            showHidden: UserDefaults.standard.bool(forKey: Preferences.showHiddenKey)
+        )
         workspace.openFile = { NSWorkspace.shared.open($0) }
         workspace.start()
         return workspace
@@ -20,6 +23,8 @@ struct CommanderApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 900)
         .commands { BrowseCommands(workspace: workspace) }
+
+        Settings { SettingsView() }
     }
 }
 
@@ -39,6 +44,7 @@ private struct BrowseCommands: Commands {
                 .disabled(panel.tabs.count < 2)
         }
         CommandGroup(after: .toolbar) {
+            Button("Quick Look", action: QuickLook.toggle).keyboardShortcut("y")
             Button(workspace.showHidden ? "Hide Hidden Files" : "Show Hidden Files") { workspace.toggleHidden() }
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Button("Refresh") { panel.refresh() }.keyboardShortcut("r")
@@ -51,12 +57,21 @@ private struct BrowseCommands: Commands {
             Button("Next Tab") { panel.nextTab(by: 1) }.keyboardShortcut("]", modifiers: [.command, .shift])
             Button("Previous Tab") { panel.nextTab(by: -1) }.keyboardShortcut("[", modifiers: [.command, .shift])
         }
+        CommandMenu("Mark") {
+            Button("Mark or Unmark") { panel.toggleMark() }
+            Button("Mark All") { panel.markAll() }
+            Button("Invert Marks") { panel.invertMarks() }
+            Button("Clear Marks") { panel.clearMarks() }
+            Divider()
+            Button("Mark by Pattern…") { workspace.beginPattern(marks: true) }
+            Button("Unmark by Pattern…") { workspace.beginPattern(marks: false) }
+        }
         CommandMenu("Go") {
             Button("Back") { panel.goBack() }.keyboardShortcut("[").disabled(!panel.canGoBack)
             Button("Forward") { panel.goForward() }.keyboardShortcut("]").disabled(!panel.canGoForward)
             Button("Enclosing Folder") { panel.goUp() }.keyboardShortcut(.upArrow)
             Button("Open as Folder") { panel.openCursor(asFolder: true) }.keyboardShortcut(.downArrow)
-            Button("Go to Path…") { workspace.isGoingToPath = true }.keyboardShortcut("g", modifiers: [.command, .shift])
+            Button("Go to Path…") { workspace.beginGoTo() }.keyboardShortcut("g", modifiers: [.command, .shift])
             Divider()
             ForEach(Places.favorites()) { place($0) }
             if !workspace.volumes.isEmpty {
