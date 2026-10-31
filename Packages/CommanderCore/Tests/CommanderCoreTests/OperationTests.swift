@@ -471,6 +471,23 @@ import Testing
         app.cancelOperation()
     }
 
+    @Test func aTransferClosesTheViewerSoItsPreviewShows() async throws {
+        let temp = try TempFolder()
+        let (app, left, _) = try await setup(temp)
+        try temp.file("a/one")
+        await reload(left)
+        left.setCursor(1)
+        app.toggleViewer()
+        app.begin(.trash)
+        await app.planned()
+        #expect(app.viewer != nil)
+        app.cancelOperation()
+        app.begin(.copy)
+        await app.planned()
+        #expect(app.viewer == nil)
+        app.cancelOperation()
+    }
+
     @Test func jobsRunOneAtATimeInOrder() async throws {
         let temp = try TempFolder()
         let (app, left, _) = try await setup(temp)

@@ -35,8 +35,8 @@ struct KeyColumn: View {
                 // Stays off until archives exist in milestone 6.
                 key("Extract", "⌘⇧U", "archivebox.fill", disabled: true, compact: compact)
                 rule
-                key("View", "F3", "eye", disabled: panel.cursorEntry?.isParent != false, compact: compact, action: QuickLook.toggle)
-                key("Edit", "F4", "pencil", compact: compact)
+                key("View", "F3", "eye", compact: compact, action: workspace.toggleViewer)
+                key("Edit", "F4", "pencil", compact: compact, action: workspace.edit)
             }
             .frame(maxHeight: .infinity)
 
@@ -59,6 +59,7 @@ struct KeyColumn: View {
 
     /// A key stays down while its operation is previewed or running.
     private func isHeld(_ title: String) -> Bool {
+        if title == "View" { return workspace.viewer != nil }
         guard let kind = workspace.pending?.preview.kind ?? workspace.jobs.current?.kind else { return false }
         switch kind {
         case .copy: return title == "Copy"

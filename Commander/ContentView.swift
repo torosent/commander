@@ -11,12 +11,15 @@ struct ContentView: View {
         VStack(spacing: 0) {
             TitleStrip(workspace: workspace)
             HStack(spacing: 0) {
-                PanelView(workspace: workspace, index: 0)
+                side(0)
                 KeyColumn(workspace: workspace)
-                PanelView(workspace: workspace, index: 1)
+                side(1)
             }
             StatusBar(workspace: workspace)
             CommandLineBar(workspace: workspace)
+        }
+        .overlay {
+            if workspace.isPaletteOpen { CommandPalette(workspace: workspace) }
         }
         .font(Theme.body)
         .foregroundStyle(Theme.ink)
@@ -41,21 +44,23 @@ struct ContentView: View {
     }
 }
 
+extension ContentView {
+    @ViewBuilder
+    fileprivate func side(_ index: Int) -> some View {
+        if let viewer = workspace.viewer, index == workspace.viewerIndex {
+            ViewerPanel(workspace: workspace, viewer: viewer)
+        } else {
+            PanelView(workspace: workspace, index: index)
+        }
+    }
+}
+
 private struct TitleStrip: View {
     let workspace: Workspace
 
     var body: some View {
-        Button {} label: {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                Text("Run a command")
-                Spacer()
-                Text("⌘K")
-            }
-            .foregroundStyle(Theme.dim)
-            .padding(.horizontal, 12)
-            .frame(width: 360, height: 24)
-            .background(Theme.deck, in: Capsule())
+        Button(action: workspace.openPalette) {
+            label
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
@@ -69,6 +74,19 @@ private struct TitleStrip: View {
             }
         }
         .overlay(alignment: .bottom) { Theme.rim.frame(height: 1) }
+    }
+
+    private var label: some View {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                Text("Run a command")
+                Spacer()
+                Text("⌘K")
+            }
+            .foregroundStyle(Theme.dim)
+            .padding(.horizontal, 12)
+            .frame(width: 360, height: 24)
+            .background(Theme.deck, in: Capsule())
     }
 }
 
@@ -85,6 +103,13 @@ private struct StatusBar: View {
                 PatternEntryBar(workspace: workspace, bar: bar).id(bar.id)
             } else if let job = workspace.jobs.current {
                 JobBar(workspace: workspace, job: job)
+            } else if let command = workspace.runningCommand {
+                HStack(spacing: 12) {
+                    Text("Running").fontWeight(.semibold).foregroundStyle(Theme.ink)
+                    Text(command).font(.system(size: 12, design: .monospaced)).lineLimit(1)
+                    Spacer()
+                    Button("Stop", action: workspace.stopCommand)
+                }
             } else if let report = workspace.report {
                 HStack(spacing: 12) {
                     Text(report.summary).foregroundStyle(Theme.ink).lineLimit(1)
@@ -335,7 +360,13 @@ private struct CommandLineBar: View {
                 .font(.system(size: 12, design: .monospaced))
                 .focused($isFocused)
                 .onChange(of: isFocused) { _, focused in workspace.isCommandLineFocused = focused }
+                .onChange(of: workspace.commandLineTick) { isFocused = true }
                 .onExitCommand(perform: workspace.returnFocus)
+                .onSubmit {
+                    workspace.runCommandLine(command)
+                    command = ""
+                    workspace.returnFocus()
+                }
         }
         .padding(.horizontal, 14)
         .frame(height: 30)

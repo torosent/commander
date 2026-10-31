@@ -7,18 +7,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var workspace: Workspace?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let jobs = workspace?.jobs, jobs.current != nil else { return .terminateNow }
+        guard let workspace, workspace.jobs.current != nil || workspace.runningCommand != nil else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText = "A job is still running"
+        alert.messageText = "Something is still running"
         alert.informativeText = "Quitting stops it and cancels any jobs waiting. Items already finished stay where they are."
         alert.addButton(withTitle: "Keep Running")
         alert.addButton(withTitle: "Stop and Quit")
         // The app stays stuck on this question, so it must stay in view after switching away.
         alert.window.hidesOnDeactivate = false
         guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
-        jobs.stopAll()
+        workspace.jobs.stopAll()
+        workspace.stopCommand()
         Task {
-            await jobs.finished()
+            await workspace.jobs.finished()
+            await workspace.commandDone()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -35,6 +37,7 @@ struct CommanderApp: App {
             showHidden: UserDefaults.standard.bool(forKey: Preferences.showHiddenKey)
         )
         workspace.openFile = { NSWorkspace.shared.open($0) }
+        workspace.desktop = .app
         workspace.start()
         return workspace
     }()
@@ -73,17 +76,25 @@ private struct BrowseCommands: Commands {
             Divider()
             operationButton("Copy to Other Panel", .copy).keyboardShortcut("c", modifiers: [.command, .shift])
             operationButton("Move to Other Panel", .move).keyboardShortcut("m", modifiers: [.command, .shift])
+            Button("Edit") { workspace.edit() }
+                .keyboardShortcut("e")
+                .disabled(workspace.isTyping)
             Button("Rename") { panel.beginRename() }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(workspace.isTyping)
             Button("Show Actions") { NSApp.sendAction(#selector(KeyTable.showActions(_:)), to: nil, from: nil) }
                 .keyboardShortcut("m", modifiers: [.command, .option])
+            Button("Copy Path") { workspace.copyPath() }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(workspace.isTyping)
+            Button("Open Terminal Here") { workspace.openTerminal() }.keyboardShortcut("t", modifiers: [.command, .shift])
             Divider()
             // ⌘⌫ means delete to line start in a text field, so these step aside while typing.
             operationButton("Move to Trash", .trash).keyboardShortcut(.delete)
             operationButton("Delete Permanently…", .delete).keyboardShortcut(.delete, modifiers: [.command, .option])
             Divider()
             Button("Stop Job", action: workspace.jobs.stopCurrent).disabled(workspace.jobs.current == nil)
+            Button("Stop Command", action: workspace.stopCommand).disabled(workspace.runningCommand == nil)
         }
         CommandGroup(after: .pasteboard) {
             Button("Move Here") { workspace.paste(Pasteboard.fileURLs(), move: true) }
@@ -91,7 +102,17 @@ private struct BrowseCommands: Commands {
                 .disabled(workspace.isTyping)
         }
         CommandGroup(after: .toolbar) {
-            Button("Quick Look", action: QuickLook.toggle).keyboardShortcut("y")
+            Button("Command Palette") { workspace.isPaletteOpen ? workspace.closePalette() : workspace.openPalette() }
+                .keyboardShortcut("k")
+            Button("Go to Command Line", action: workspace.focusCommandLine).keyboardShortcut("l")
+            Divider()
+            Button(workspace.viewer == nil ? "View Beside" : "Close Viewer", action: workspace.toggleViewer)
+                .keyboardShortcut("y")
+                .disabled(workspace.isTyping)
+            Button("Show as Text or Hex") { workspace.viewer?.toggleHex() }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .disabled(workspace.viewer == nil)
+            Button("Quick Look", action: QuickLook.toggle).keyboardShortcut("y", modifiers: [.command, .shift])
             Button(workspace.showHidden ? "Hide Hidden Files" : "Show Hidden Files") { workspace.toggleHidden() }
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Button("Refresh") { panel.refresh() }.keyboardShortcut("r")

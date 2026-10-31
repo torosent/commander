@@ -354,8 +354,9 @@ struct FileTable: NSViewRepresentable {
             } else {
                 panel.endSearch()
             }
-        case 99: QuickLook.toggle()
-        case 118: workspace.notBuilt("Edit")
+        case 99:
+            if shifted { QuickLook.toggle() } else { workspace.toggleViewer() }
+        case 118: workspace.edit()
         case 96: workspace.begin(.copy)
         case 97:
             if shifted { panel.beginRename() } else { workspace.begin(.move) }

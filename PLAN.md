@@ -75,14 +75,16 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | Invert marks | * |
 | Mark all | ⌘A |
 | Clear marks or end a search | Esc |
-| Quick Look | F3 or ⌘Y |
+| Quick Look | ⇧F3 or ⌘⇧Y |
 | Open | Return |
 | Up a folder | Backspace or ⌘↑ |
 | Open a package as a folder | ⌘↓ |
 | Refresh | ⌘R |
 | Back / forward | ⌘[ / ⌘] |
 | Go to path | ⌘⇧G |
-| View beside (M4) | F3 or ⌘Y |
+| View beside | F3 or ⌘Y |
+| Viewer: text or hex | H in the viewer, or ⌘⇧H |
+| Viewer: focus | Tab, and Tab again to leave |
 | Edit | F4 or ⌘E |
 | Copy to other panel | F5 or ⌘⇧C |
 | Move to other panel | F6 or ⌘⇧M |
@@ -202,14 +204,24 @@ The highest-risk milestone, because this is where data can be lost.
 
 ### M4: Command layer
 
-- [ ] Command palette with filtering, listing every command
-- [ ] Command line that runs in the active panel's folder
-- [ ] F4 opens the default editor
-- [ ] View beside: the viewer takes over the other panel and follows the cursor
-- [ ] Memory-mapped text and hex viewer for huge files
-- [ ] Open Terminal here and copy path
+- [x] Command palette with filtering, listing every command
+- [x] Command line that runs in the active panel's folder
+- [x] F4 opens the default editor
+- [x] View beside: the viewer takes over the other panel and follows the cursor
+- [x] Paged text and hex viewer for huge files
+- [x] Open Terminal here and copy path
 
 **Exit:** a multi-GB log opens without delay, and every command is reachable from the palette.
+
+**Status:** code complete, with 200 tests passing. A 6 GB file opens and jumps to its end at once. Tried in the running app: the palette, the command line, the viewer in every mode, and following the cursor. Open Terminal Here was tried with Ghostty. F4 and Copy Path are tested through their hand-off only, so they still need a real try.
+
+Decided in M4:
+
+- The viewer reads windows with `pread` instead of a memory map. A mapped file that shrinks, or whose volume goes away, kills the process, and logs get rotated while they're read.
+- F3 is View Beside, as the prototype has it. Quick Look moves to ⇧F3 and ⌘⇧Y, and images, PDFs and media open with Quick Look inside the viewer.
+- The command line runs through the login shell with no terminal attached, and output opens in the viewer. `cd` moves the panel. Interactive programs need Open Terminal.
+- The palette lists what exists now. Each later milestone adds its own commands.
+- Settings picks the terminal for ⌘⇧T, falling back to the system's default. F4 uses the Default editor setting, or else the file's default app.
 
 ### M5: Multi-rename
 

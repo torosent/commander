@@ -18,11 +18,23 @@ public final class Workspace {
     /// True while the command line has focus, so commands don't take its keystrokes.
     public var isCommandLineFocused = false
     public let jobs = JobQueue()
+    /// Shown in the panel opposite the active one.
+    public private(set) var viewer: Viewer?
+    public private(set) var isPaletteOpen = false
+    /// The command line command still running.
+    public private(set) var runningCommand: String?
+    /// Bumped to hand keyboard focus to the viewer, or to the command line.
+    public private(set) var viewerFocusTick = 0
+    public private(set) var commandLineTick = 0
     public private(set) var volumes: [Place] = []
     /// Bumped to hand keyboard focus back to the active table.
     public private(set) var focusTick = 0
 
     @ObservationIgnored public var openFile: @MainActor (URL) -> Void = { _ in }
+    @ObservationIgnored public var desktop = Desktop()
+    @ObservationIgnored private var process: Process?
+    @ObservationIgnored private var wasStopped = false
+    @ObservationIgnored private var commandTask: Task<Void, Never>?
     @ObservationIgnored private var messageTask: Task<Void, Never>?
     @ObservationIgnored private var patternOpens = 0
     @ObservationIgnored private var planning: Task<Void, Never>?
@@ -62,7 +74,7 @@ public final class Workspace {
     }
 
     public var isTyping: Bool {
-        isGoingToPath || patternBar != nil || isCommandLineFocused || panels.contains { $0.edit != nil }
+        isGoingToPath || patternBar != nil || isCommandLineFocused || isPaletteOpen || panels.contains { $0.edit != nil }
     }
 
     public var session: Session {
@@ -84,8 +96,13 @@ public final class Workspace {
         activeIndex = index
     }
 
+    /// With the viewer open, the other side is the viewer, so focus goes there instead.
     public func switchPanel() {
-        activeIndex = 1 - activeIndex
+        if viewer != nil {
+            viewerFocusTick += 1
+        } else {
+            activeIndex = 1 - activeIndex
+        }
     }
 
     public func returnFocus() {
@@ -163,6 +180,8 @@ public final class Workspace {
             guard source?.location == origin, destination == nil || destination?.location.path == target?.path else { return }
             switch plan {
             case .success(let preview):
+                // A transfer previews in the other panel, so it has to be showing.
+                if isTransfer, viewer != nil { closeViewer() }
                 pending = PendingOperation(preview: preview, source: source, destination: destination, choice: preview.defaultChoice)
                 showPending(scroll: true)
             case .failure(let refusal):
@@ -225,6 +244,140 @@ public final class Workspace {
             }
         }
         destination.showPreview(states: states, ghosts: ghosts, kind: preview.kind, scroll: scroll)
+    }
+
+    // MARK: Viewer
+
+    public var viewerIndex: Int { 1 - activeIndex }
+
+    public func toggleViewer() {
+        if viewer == nil {
+            let opened = Viewer()
+            opened.follow(active.cursorEntry)
+            viewer = opened
+        } else {
+            closeViewer()
+        }
+    }
+
+    public func closeViewer() {
+        viewer = nil
+        returnFocus()
+    }
+
+    // MARK: Palette
+
+    public func openPalette() {
+        isPaletteOpen = true
+    }
+
+    public func closePalette() {
+        isPaletteOpen = false
+        returnFocus()
+    }
+
+    // MARK: Hand-offs
+
+    public func edit() {
+        guard let entry = active.cursorEntry, !entry.isParent, !entry.isDirectory else {
+            return say("Move the cursor to a file to edit it.")
+        }
+        desktop.edit(entry.url)
+    }
+
+    public func openTerminal() {
+        desktop.openTerminal(active.location)
+    }
+
+    /// Copies the selection's paths, or the folder's if nothing is selected.
+    public func copyPath() {
+        let paths = active.selectionEntries.map(\.url.path)
+        desktop.copyText((paths.isEmpty ? [active.location.path] : paths).joined(separator: "\n"))
+        say(paths.count > 1 ? "Copied \(paths.count) paths." : "Copied the path.")
+    }
+
+    // MARK: Command line
+
+    public func focusCommandLine() {
+        commandLineTick += 1
+    }
+
+    /// `cd` moves the active panel. Anything else runs in its folder, and any output opens in the viewer.
+    public func runCommandLine(_ line: String) {
+        let text = line.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        if let path = Self.cdTarget(text) {
+            commandTask = Task {
+                if let problem = await goTo(path: path) { say(problem) }
+            }
+            return
+        }
+        guard runningCommand == nil else { return say("A command is already running.") }
+        let output = FileManager.default.temporaryDirectory.appending(path: "commander-output-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: output.path, contents: nil),
+              let handle = try? FileHandle(forWritingTo: output) else {
+            return say("The command couldn't start.")
+        }
+        let process = Process()
+        process.executableURL = URL(filePath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+        // A login shell, because an app started from the Dock doesn't get the user's PATH.
+        process.arguments = ["-lc", text]
+        process.currentDirectoryURL = active.location
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = handle
+        process.standardError = handle
+        self.process = process
+        wasStopped = false
+        runningCommand = text
+        commandTask = Task {
+            let status = await withCheckedContinuation { (finished: CheckedContinuation<Int32, Never>) in
+                process.terminationHandler = { finished.resume(returning: $0.terminationStatus) }
+                do {
+                    try process.run()
+                } catch {
+                    process.terminationHandler = nil
+                    finished.resume(returning: 127)
+                }
+            }
+            try? handle.close()
+            commandFinished(text, status: status, output: output)
+        }
+    }
+
+    public func stopCommand() {
+        guard let process, process.isRunning else { return }
+        wasStopped = true
+        process.terminate()
+    }
+
+    /// The folder a plain `cd` asks for. Anything using shell syntax is left to the shell.
+    private static func cdTarget(_ text: String) -> String? {
+        guard text == "cd" || text.hasPrefix("cd "),
+              text.rangeOfCharacter(from: CharacterSet(charactersIn: ";&|<>$`()*?")) == nil else { return nil }
+        let path = text.dropFirst(2).trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            .replacingOccurrences(of: "\\ ", with: " ")
+        return path.isEmpty ? "~" : path
+    }
+
+    /// Waits for a command line entry to finish, including cleanup when stopping.
+    public func commandDone() async {
+        await commandTask?.value
+    }
+
+    private func commandFinished(_ text: String, status: Int32, output: URL) {
+        process = nil
+        runningCommand = nil
+        for panel in panels { panel.refresh() }
+        say(wasStopped ? "Stopped \(text)." : status == 0 ? "Finished \(text)." : "\(text) exited with status \(status).")
+        let size = (try? output.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        if size > 0, pending == nil {
+            let shown = viewer ?? Viewer()
+            // The viewer keeps the file open, so its name can go right away.
+            shown.pin(output, title: "Output of \(text)", cursor: active.cursorEntry)
+            viewer = shown
+        }
+        try? FileManager.default.removeItem(at: output)
     }
 
     // MARK: Clipboard
