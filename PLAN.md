@@ -99,6 +99,8 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | In compare: mode, differences, allow deletions | 1 2 3, D, A |
 | In compare: show line differences | Space |
 | Find Files | ⌘F |
+| In Find: this folder, this volume, all volumes | ⌘1 ⌘2 ⌘3 |
+| In results: stop the search, then close the tab | Esc |
 | Hidden files | ⌘⇧. |
 | Command palette | ⌘K |
 | Command line | ⌘L |
@@ -307,14 +309,28 @@ Decided in M7:
 
 ### M8: Find Files
 
-- [ ] Search by name pattern and by content
-- [ ] Spotlight when the volume is indexed, folder walk otherwise
-- [ ] Scope: this folder, this volume or all volumes
-- [ ] Results open as a tab, usable for copy and compress
-- [ ] Return opens a result's folder
-- [ ] Cancel, and live results while searching
+- [x] Search by name pattern and by content
+- [x] Spotlight when the volume is indexed, folder walk otherwise
+- [x] Scope: this folder, this volume or all volumes
+- [x] Results open as a tab, usable for copy and compress
+- [x] Return opens a result's folder
+- [x] Cancel, and live results while searching
 
 **Exit:** the same search finds the same files on an indexed internal volume and an unindexed external one.
+
+**Status:** code complete, with 426 tests passing, repeated runs of the whole suite staying clean. Tried in the running app: name and content search, folder and volume scope, the results tab and its Folder column, Keep Results, Return to the folder and Back, closing with Esc, Cancel, and a search of the whole startup disk, with a test showing Spotlight answers from the top of the disk. The exit test is covered by comparing a disk image with a temp folder. Not yet tried by hand: ⌘1, ⌘2 and ⌘3, All Volumes, a real unindexed external drive, stopping a long search with Esc, and copy and compress from results with real keys.
+
+Decided in M8:
+
+- The walk decides the answer, and Spotlight only makes hits arrive sooner. Every hit is checked by the walk's own rules, so an indexed volume and an unindexed one give the same files, and a folder Spotlight doesn't cover can't come back empty.
+- Spotlight runs on a thread of its own, which nothing else touches. Stopping a query can wait on the thread that asked, so on the main thread it froze the app. It's built from arguments rather than a query string, because a string it can't parse raises an exception Swift can't catch.
+- Hidden files, packages, other volumes and `/System` are left out of a search, the way a panel shows them. Content is matched as bytes with ASCII case folded, so accents and UTF-16 aren't matched.
+- Content search never reads a file iCloud has taken off the disk, because that would download it. Such a file counts as unreadable.
+- A Find tab left with nothing typed closes itself.
+- Results stop at 100,000, and a search that didn't finish says so in the footer.
+- Results arrive in the order found and are sorted once the search ends, so rows don't shift under the cursor.
+- Move, Trash, rename and new folder need the real folder, and nothing can land in a results tab. Dropping or pasting into one is refused. Dragging out of one still follows the usual move or copy rule.
+- A results tab reopens as its starting folder after a relaunch.
 
 ### M9: Release
 

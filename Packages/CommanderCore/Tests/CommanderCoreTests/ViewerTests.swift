@@ -9,6 +9,16 @@ import Testing
         return try PagedFile(url)
     }
 
+    /// `deinit` closes the file on every way out, and closing it here as well would close it twice.
+    @Test func aRefusedFileIsClosedExactlyOnce() throws {
+        let temp = try TempFolder()
+        for _ in 0..<20_000 {
+            #expect(throws: ViewerError.notAFile) { _ = try PagedFile(temp.url) }
+        }
+        let file = try temp.file("still-opens", bytes: 1)
+        #expect(throws: Never.self) { _ = try PagedFile(file) }
+    }
+
     @Test func readsRowsAndTheirOffsets() throws {
         let temp = try TempFolder()
         let rows = try file("one\ntwo\n\nfour", in: temp).rows(from: 0, count: 10, columns: 80)

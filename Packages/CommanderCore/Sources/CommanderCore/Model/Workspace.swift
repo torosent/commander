@@ -24,6 +24,8 @@ public final class Workspace {
     public private(set) var renameSession: RenameSession?
     /// The compare screen, which also takes the place of the panels.
     public private(set) var compareSession: CompareSession?
+    /// The latest search. Its bar can close while the search runs on.
+    public private(set) var find: FindSession?
     public private(set) var isPaletteOpen = false
     /// The command line command still running.
     public private(set) var runningCommand: String?
@@ -85,11 +87,13 @@ public final class Workspace {
     /// True while a bar or an inline edit is open, which another bar shouldn't open on top of.
     /// The keys reach these even when `isTyping` holds the menus back.
     private var hasOpenField: Bool {
-        patternBar != nil || isGoingToPath || panels.contains { $0.edit != nil }
+        patternBar != nil || isGoingToPath || isFindBarOpen || panels.contains { $0.edit != nil }
     }
 
+    public var isFindBarOpen: Bool { find?.isBarOpen == true }
+
     public var isTyping: Bool {
-        isGoingToPath || patternBar != nil || isCommandLineFocused || isPaletteOpen || renameSession != nil || compareSession != nil || panels.contains { $0.edit != nil }
+        hasOpenField || isCommandLineFocused || isPaletteOpen || renameSession != nil || compareSession != nil
     }
 
     public var session: Session {
@@ -169,6 +173,13 @@ public final class Workspace {
         if let pending, pending.source === panel || pending.destination === panel { cancelOperation() }
         if renameSession?.panel === panel { cancelRename() }
         if compareSession != nil { closeCompare() }
+        if let find, find.isBarOpen, find.panel === panel, panel.tab.results?.id != find.id {
+            find.closeBar()
+            // Nothing was searched for, so there's nothing to keep.
+            if find.query.isEmpty { panel.closeResults(find.id) }
+            // The field had focus and is going away, which would leave the keyboard with nothing.
+            returnFocus()
+        }
     }
 
     // MARK: Operations
@@ -177,6 +188,11 @@ public final class Workspace {
     public func begin(_ kind: OperationKind, entries: [FileEntry]? = nil, into folder: URL? = nil) {
         guard pending == nil, planning == nil, !hasOpenField else { return }
         let other = panels[1 - activeIndex]
+        // Bulk changes to files from all over are too easy to get wrong without seeing their folders.
+        if active.isResults, [.move, .trash, .delete].contains(kind) {
+            return say("Press Return to open the folder first, then move or trash from there.")
+        }
+        if folder == nil, other.isResults, [.copy, .move, .extract].contains(kind) { return say(Self.resultsInTheWay) }
         let home = entries?.first.flatMap { FileNames.realPath($0.url.deletingLastPathComponent()) }
         let source = entries == nil ? active : [active, other].first { FileNames.realPath($0.location) == home }
         let isTransfer = kind == .copy || kind == .move || kind == .extract
@@ -224,6 +240,12 @@ public final class Workspace {
         guard !sources.isEmpty else { return say("Move the cursor to a file, or mark some first.") }
         let other = panels[1 - activeIndex]
         guard !active.isInsideArchive, !other.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
+        guard !other.isResults else { return say(Self.resultsInTheWay) }
+        // Files from different folders can share a name, which one archive folder can't hold.
+        var names = Set<String>()
+        for source in sources where !names.insert(source.fileName.precomposedStringWithCanonicalMapping).inserted {
+            return say(OperationRefusal.sharedName(source.fileName).message)
+        }
         // The archive would be built inside something it's reading.
         let destination = FileNames.realPath(other.location) ?? other.location.path
         let isInside = sources.contains { source in
@@ -347,6 +369,7 @@ public final class Workspace {
         guard pending == nil, planning == nil, renameSession == nil, compareSession == nil, !hasOpenField else { return }
         let (left, right) = (panels[0], panels[1])
         guard !left.isInsideArchive, !right.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
+        guard !left.isResults, !right.isResults else { return say("Compare needs a folder in each panel.") }
         guard let one = FileNames.realPath(left.location), let two = FileNames.realPath(right.location) else {
             return say("One of the folders can't be read.")
         }
@@ -369,6 +392,47 @@ public final class Workspace {
         jobs.add(session.preview, choice: .replace)
     }
 
+    // MARK: Find Files
+
+    private static let resultsInTheWay = "Switch the other panel away from the results first."
+
+    /// Opens a results tab in the active panel, and the bar that fills it.
+    public func beginFind() {
+        guard pending == nil, planning == nil, renameSession == nil, compareSession == nil, !hasOpenField else { return }
+        find?.stop()
+        if viewer != nil { closeViewer() }
+        let panel = active
+        let session = FindSession(panel: panel, folder: panel.searchFolder, volumes: volumes.map(\.url), showHidden: showHidden)
+        panel.openResults(session.id)
+        find = session
+    }
+
+    /// Leaves the bar and keeps the tab, with the search still running if it hasn't finished.
+    public func keepFind() {
+        guard let find else { return }
+        guard !find.query.isEmpty else { return cancelFind() }
+        find.closeBar()
+        returnFocus()
+    }
+
+    public func cancelFind() {
+        guard let find else { return }
+        find.stop()
+        find.closeBar()
+        find.panel.closeResults(find.id)
+        returnFocus()
+    }
+
+    /// Esc in a results tab: a running search stops first, and then the tab closes. Marks clear before either.
+    public func escape(in panel: Panel) {
+        guard let id = panel.tab.results?.id, panel.tab.marked.isEmpty else { return panel.clearMarks() }
+        if find?.id == id, find?.isSearching == true {
+            find?.stop()
+        } else {
+            panel.closeResults(id)
+        }
+    }
+
     // MARK: Multi-rename
 
     /// Opens on the marked files, or the cursor's. Folders are left out, but packages count as files.
@@ -376,6 +440,7 @@ public final class Workspace {
         guard pending == nil, planning == nil, renameSession == nil, !hasOpenField else { return }
         let files = active.selectionEntries.filter { !$0.opensAsFolder }
         guard !active.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
+        guard !active.isResults else { return say(Panel.openFolderToRename) }
         guard !files.isEmpty else { return say("Mark the files to rename first.") }
         if viewer != nil { closeViewer() }
         renameSession = RenameSession(panel: active, files: files)
@@ -562,6 +627,7 @@ public final class Workspace {
 
     /// Starts a copy or move of files from the clipboard into the active panel.
     public func paste(_ urls: [URL], move: Bool) {
+        guard !active.isResults else { return say("Open a folder first.") }
         let entries = urls.compactMap(LocalSource.entry)
         begin(move ? .move : .copy, entries: entries, into: active.location)
     }
@@ -713,13 +779,24 @@ public final class Panel {
         let sort = tab.sort
         refreshDelay?.cancel()
         refreshDelay = nil
-        isLoading = true
         loading?.cancel()
+        if let results = tab.results, workspace?.find?.id == results.id, workspace?.find?.isSearching == true {
+            // Still arriving, in the order they were found. The list is sorted once it's whole.
+            isLoading = false
+            tabs[tabIndex].entries = results.entries
+            return rebuildRows(cursor: cursor)
+        }
+        isLoading = true
+        let found = tab.results?.entries
         let started = ContinuousClock.now
         loading = Task { [source] in
             let result: Result<Listing, ListingError>
             do throws(ListingError) {
-                result = .success(try await source.list(url, sort: sort))
+                if let found {
+                    result = .success(await Self.current(found, sort: sort))
+                } else {
+                    result = .success(try await source.list(url, sort: sort))
+                }
             } catch {
                 result = .failure(error)
             }
@@ -730,14 +807,23 @@ public final class Panel {
         }
     }
 
+    /// Results as they are now. A file that has gone drops out, and one that changed shows its new size.
+    private nonisolated static func current(_ found: [FileEntry], sort: FileSort) async -> Listing {
+        await Task.detached(priority: .userInitiated) {
+            // New URLs, because each one remembers what it was last told about its file.
+            Listing(entries: sort.sorted(found.compactMap { LocalSource.entry(URL(filePath: $0.url.path)) }), freeSpace: nil)
+        }.value
+    }
+
     private func apply(_ result: Result<Listing, ListingError>, cursor: URL?, followMissing: Bool) {
         switch result {
         case .success(let listing):
             tabs[tabIndex].entries = withKnownSizes(listing.entries)
+            tabs[tabIndex].results?.entries = listing.entries
             tabs[tabIndex].failure = nil
             freeSpace = listing.freeSpace
             if let notice = listing.notice { workspace?.say(notice) }
-            startWatching()
+            if !isResults { startWatching() }
             rebuildRows(cursor: cursor)
             measureMarkedFolders()
             return
@@ -824,6 +910,13 @@ public final class Panel {
     /// Rows match by name, because one folder can have several paths: /tmp is also /private/tmp.
     /// The ".." row goes first, or a file named like the parent folder would take its place.
     private func row(for url: URL) -> Int? {
+        // Results are from many folders, so a name alone could be several rows.
+        // By path, because a folder's URL can differ by a trailing slash. The cursor's row goes first,
+        // as this runs for every batch of a search.
+        if isResults {
+            if rows.indices.contains(cursorIndex), rows[cursorIndex].url.path == url.path { return cursorIndex }
+            return rows.firstIndex { $0.url.path == url.path }
+        }
         if rows.first?.isParent == true, rows[0].url.path == url.path { return 0 }
         let key = FileNames.key(url)
         return rows.firstIndex { !$0.isParent && FileNames.key($0.url) == key }
@@ -893,12 +986,23 @@ public final class Panel {
     /// True while showing the inside of an archive, which can be read but not changed.
     public var isInsideArchive: Bool { ArchivePath.split(location) != nil }
 
-    /// Somewhere that really exists on disk: the folder holding the archive, if inside one.
-    var realFolder: URL { ArchivePath.split(location)?.archive.deletingLastPathComponent() ?? location }
+    /// True while showing search results, whose rows come from many folders.
+    public var isResults: Bool { tab.results != nil }
+
+    /// What a search from here starts from: the folder holding the archive, if inside one.
+    var searchFolder: URL { ArchivePath.split(location)?.archive.deletingLastPathComponent() ?? location }
+
+    /// Somewhere that really exists on disk. In results, that's where the cursor's file is.
+    var realFolder: URL {
+        isResults ? cursorEntry?.url.deletingLastPathComponent() ?? location : searchFolder
+    }
+
+    static let openFolderToRename = "Press Return to open the folder, then rename from there."
 
     public func beginNewFolder() {
         guard tab.failure == nil, edit == nil, workspace?.pending == nil else { return }
         guard !isInsideArchive else { workspace?.say(OperationRefusal.readOnlyArchive.message); return }
+        guard !isResults else { workspace?.say("Open a folder first."); return }
         let url = FileNames.freeFolder(in: location)
         let draft = FileEntry(url: url, fileName: url.lastPathComponent, size: nil, modified: nil, isDirectory: true)
         draftFolder = draft
@@ -910,6 +1014,7 @@ public final class Panel {
     public func beginRename() {
         guard let entry = cursorEntry, !entry.isParent, edit == nil, workspace?.pending == nil else { return }
         guard !isInsideArchive else { workspace?.say(OperationRefusal.readOnlyArchive.message); return }
+        guard !isResults else { workspace?.say(Self.openFolderToRename); return }
         edit = EditState(kind: .rename(entry.url), text: entry.fileName)
     }
 
@@ -1018,7 +1123,9 @@ public final class Panel {
     /// Return on the cursor row. Packages open unless `asFolder` is set.
     public func openCursor(asFolder: Bool = false) {
         guard let entry = cursorEntry else { return }
-        if entry.isParent {
+        if isResults, !asFolder {
+            navigate(to: entry.url.deletingLastPathComponent(), cursor: entry.url)
+        } else if entry.isParent {
             goUp()
         } else if entry.opensAsFolder || (asFolder && entry.isDirectory) || (!isInsideArchive && entry.isArchive) {
             navigate(to: entry.url)
@@ -1050,7 +1157,7 @@ public final class Panel {
 
     public func newTab() {
         var tab = TabState(location: location)
-        tab.sort = self.tab.sort
+        tab.sort = self.tab.sort.forFolders
         tab.savedCursor = cursorEntry?.url
         tabs.insert(tab, at: tabIndex + 1)
         selectTab(tabIndex + 1)
@@ -1073,6 +1180,81 @@ public final class Panel {
         stopWatching()
         stopMeasuring()
         show(cursor: tab.savedCursor)
+    }
+
+    // MARK: Find results
+
+    /// Opens beside the tab it was started from, which is where closing it comes back to.
+    func openResults(_ id: UUID) {
+        var results = TabState(location: searchFolder)
+        results.sort = tab.sort.forResults
+        results.results = FindResults(id: id)
+        tabs[tabIndex].savedCursor = cursorEntry?.url
+        tabs.insert(results, at: tabIndex + 1)
+        showTab(tabIndex + 1)
+    }
+
+    private func resultsTab(_ id: UUID) -> Int? {
+        tabs.firstIndex { $0.results?.id == id }
+    }
+
+    func resetResults(_ id: UUID, title: String, isEmpty: Bool) {
+        guard let index = resultsTab(id) else { return }
+        var results = FindResults(id: id)
+        results.title = title
+        results.isComplete = isEmpty
+        tabs[index].results = results
+        tabs[index].entries = []
+        tabs[index].marked = []
+        if index == tabIndex {
+            // A load still running has the last search's files, which mustn't land on this one's.
+            generation += 1
+            loading?.cancel()
+            isLoading = false
+            rebuildRows()
+        }
+    }
+
+    /// Returns false if the tab has gone, or has moved on to a folder.
+    func addResults(_ batch: [FileEntry], to id: UUID) -> Bool {
+        guard let index = resultsTab(id) else { return false }
+        tabs[index].results?.entries += batch
+        if index == tabIndex {
+            tabs[index].entries += batch
+            rebuildRows()
+        }
+        return true
+    }
+
+    func finishResults(_ id: UUID, _ outcome: FindOutcome, isComplete: Bool) {
+        guard let index = resultsTab(id) else { return }
+        tabs[index].results?.outcome = outcome
+        tabs[index].results?.isComplete = isComplete
+        if index == tabIndex { refresh() }
+    }
+
+    func closeResults(_ id: UUID) {
+        guard let index = resultsTab(id) else { return }
+        guard tabs.count > 1 else {
+            tabs[index].leaveResults()
+            if index == tabIndex { show(cursor: nil) }
+            return
+        }
+        tabs.remove(at: index)
+        if index == tabIndex {
+            showTab(max(index - 1, 0))
+        } else if index < tabIndex {
+            tabIndex -= 1
+        }
+    }
+
+    /// What the footer should add about the search, if anything.
+    public var findStatus: String? {
+        guard let results = tab.results else { return nil }
+        if workspace?.find?.id == results.id, workspace?.find?.isSearching == true { return "Searching…" }
+        if results.outcome.reachedLimit { return "Stopped at \(FileFinder.limit.formatted()) results" }
+        if !results.isComplete { return "Stopped" }
+        return results.outcome.unreadable > 0 ? "\(results.outcome.unreadable.formatted()) couldn't be read" : nil
     }
 
     public func nextTab(by delta: Int) {
@@ -1268,7 +1450,7 @@ public final class Panel {
     // MARK: Sorting
 
     public func sort(by key: FileSort.Key) {
-        tabs[tabIndex].sort = tab.sort.toggled(key)
+        tabs[tabIndex].sort = tab.sort.toggled(isResults && key == .ext ? .folder : key)
         // A load in flight has the old order, so restart it with the new one.
         guard !isLoading else { return load(cursor: cursorEntry?.url) }
         generation += 1

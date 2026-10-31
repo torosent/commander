@@ -4,7 +4,7 @@ import Testing
 @testable import CommanderCore
 
 /// A real mounted volume, for what a single folder can't show: other volumes, file systems and full disks.
-final class DiskImage {
+final class DiskImage: @unchecked Sendable {
     let mount: URL
     private let image: URL
 

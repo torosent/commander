@@ -76,11 +76,14 @@ private struct PathBar: View {
 
     var body: some View {
         let panel = workspace.panels[index]
-        let crumbs = Places.crumbs(for: panel.location)
+        let crumbs = panel.isResults ? [] : Places.crumbs(for: panel.location)
         HStack(spacing: 4) {
             nav("chevron.left", "Back", enabled: panel.canGoBack) { panel.goBack() }
             nav("chevron.right", "Forward", enabled: panel.canGoForward) { panel.goForward() }
             PlacesMenu(workspace: workspace, index: index)
+            if panel.isResults {
+                Text("Find results").fontWeight(.semibold).foregroundStyle(Theme.ink).lineLimit(1)
+            }
             HStack(spacing: 4) {
                 ForEach(Array(crumbs.enumerated()), id: \.element.id) { offset, crumb in
                     let isLast = offset == crumbs.count - 1
@@ -166,9 +169,14 @@ private struct ColumnHeader: View {
     let index: Int
 
     var body: some View {
+        let isResults = workspace.panels[index].isResults
         HStack(spacing: 0) {
             heading("Name", .name, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
-            heading("Ext", .ext, alignment: .leading).frame(width: 96, alignment: .leading)
+            if isResults {
+                heading("Folder", .folder, alignment: .leading).frame(width: FileTable.folderWidth, alignment: .leading)
+            } else {
+                heading("Ext", .ext, alignment: .leading).frame(width: 96, alignment: .leading)
+            }
             heading("Size", .size, alignment: .trailing).frame(width: 84, alignment: .trailing)
             heading("Modified", .modified, alignment: .trailing).frame(width: 106, alignment: .trailing)
         }
@@ -210,6 +218,7 @@ private struct Footer: View {
         HStack {
             if panel.query.isEmpty {
                 Text(summary)
+                if let status = panel.findStatus { Text(status) }
                 Spacer()
                 Text(FileSize.format(panel.visibleSize))
             } else {
@@ -249,7 +258,11 @@ private struct PanelNotice: View {
             .padding(16)
             .frame(maxWidth: 360)
         } else if !panel.isLoading, panel.tab.entries.isEmpty {
-            Text("This folder is empty.").foregroundStyle(Theme.dim).allowsHitTesting(false)
+            if !panel.isResults {
+                Text("This folder is empty.").foregroundStyle(Theme.dim).allowsHitTesting(false)
+            } else if panel.tab.title != "Find", panel.findStatus == nil {
+                Text("No files match.").foregroundStyle(Theme.dim).allowsHitTesting(false)
+            }
         }
     }
 

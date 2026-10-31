@@ -676,7 +676,8 @@ private func row(_ rows: [CompareRow], _ name: String) throws -> CompareRow {
     }
 
     @Test func anUntouchedFolderGoesToTrash() async throws {
-        let image = try DiskImage(format: "APFS")
+        // Off the main actor, because making one blocks and the other tests need that thread.
+        let image = try await Task.detached { try DiskImage(format: "APFS") }.value
         let (a, b) = (image.mount.appending(path: "a"), image.mount.appending(path: "b"))
         for folder in [a, b] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
         let only = a.appending(path: "only")

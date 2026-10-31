@@ -18,6 +18,7 @@ final class TempFolder {
 
     @discardableResult
     func file(_ name: String, bytes: Int = 1) throws -> URL {
+        try FileManager.default.createDirectory(at: url.appending(path: name).deletingLastPathComponent(), withIntermediateDirectories: true)
         let file = url.appending(path: name)
         try Data(count: bytes).write(to: file)
         return file

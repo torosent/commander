@@ -7,6 +7,9 @@ struct KeyColumn: View {
 
     private var panel: Panel { workspace.active }
     private var nothingSelected: Bool { panel.selectionCount == 0 }
+    /// Somewhere whose files can be read but not changed in place.
+    private var isLocked: Bool { panel.isInsideArchive || panel.isResults }
+    private var otherIsResults: Bool { workspace.panels[1 - workspace.activeIndex].isResults }
     private var canExtract: Bool {
         // Marks aren't searched here, because this runs on every render. Extract says if none are archives.
         panel.isInsideArchive ? !nothingSelected : panel.markedCount > 0 || panel.cursorEntry?.isArchive == true
@@ -35,7 +38,7 @@ struct KeyColumn: View {
                     isPartial: panel.isMeasuring, arrow: arrow, compact: compact
                 )
                 Spacer(minLength: 0)
-                key("Compress", "⌘⇧P", "archivebox", disabled: nothingSelected || panel.isInsideArchive, compact: compact, action: workspace.beginCompress)
+                key("Compress", "⌘⇧P", "archivebox", disabled: nothingSelected || panel.isInsideArchive || otherIsResults, compact: compact, action: workspace.beginCompress)
                 key("Extract", "⌘⇧U", "archivebox.fill", disabled: !canExtract, compact: compact, action: workspace.beginExtract)
                 rule
                 key("View", "F3", "eye", compact: compact, action: workspace.toggleViewer)
@@ -43,15 +46,15 @@ struct KeyColumn: View {
             }
             .frame(maxHeight: .infinity)
 
-            key("Copy", "F5", "doc.on.doc", tone: .copy, disabled: nothingSelected, compact: compact) { workspace.begin(.copy) }
+            key("Copy", "F5", "doc.on.doc", tone: .copy, disabled: nothingSelected || otherIsResults, compact: compact) { workspace.begin(.copy) }
                 .padding(.vertical, 6)
 
             VStack(spacing: compact ? 5 : 6) {
-                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected || panel.isInsideArchive, compact: compact) { workspace.begin(.move) }
-                key("New", "F7", "plus", disabled: panel.isInsideArchive, compact: compact) { panel.beginNewFolder() }
-                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected || panel.isInsideArchive, compact: compact) { workspace.begin(.trash) }
+                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected || isLocked || otherIsResults, compact: compact) { workspace.begin(.move) }
+                key("New", "F7", "plus", disabled: isLocked, compact: compact) { panel.beginNewFolder() }
+                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected || isLocked, compact: compact) { workspace.begin(.trash) }
                 rule
-                key("Rename", "⌘⇧R", "character.cursor.ibeam", disabled: nothingSelected || panel.isInsideArchive, compact: compact, action: workspace.beginRename)
+                key("Rename", "⌘⇧R", "character.cursor.ibeam", disabled: nothingSelected || isLocked, compact: compact, action: workspace.beginRename)
                 key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact, action: workspace.beginCompare)
                 Spacer(minLength: 0)
             }

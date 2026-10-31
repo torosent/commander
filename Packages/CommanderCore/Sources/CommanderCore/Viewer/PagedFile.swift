@@ -31,19 +31,14 @@ public final class PagedFile {
         descriptor = open(url.path, O_RDONLY | O_NONBLOCK)
         guard descriptor >= 0 else { throw .unreadable(errno) }
         var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
-            close(descriptor)
-            throw .notAFile
-        }
+        // No closing on the way out: `deinit` still runs, and closing twice could close another thread's file.
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw .notAFile }
         // Reading a cloud placeholder downloads it, and a moving cursor shouldn't fetch every file it passes.
-        if info.st_flags & UInt32(SF_DATALESS) != 0 {
-            close(descriptor)
-            throw .notDownloaded
-        }
+        if info.st_flags & UInt32(SF_DATALESS) != 0 { throw .notDownloaded }
     }
 
     deinit {
-        close(descriptor)
+        if descriptor >= 0 { close(descriptor) }
     }
 
     /// Asked each time, so a growing log shows its new lines.

@@ -340,12 +340,12 @@ const ICON={copy:'copy',move:'move',trash:'trash',compress:'archive',extract:'un
 function ibDraw(){const I=S.ib,tail=l=>`<span id="ibN"></span><span class="sp"></span><button class="b" data-a="ibcancel">Cancel <kbd>esc</kbd></button><button class="b pl" data-a="ibrun">${l} <kbd>↩</kbd></button>`;I.drawn=true;
   $('bar').innerHTML=I.kind==='mp'?`${ico('check')}<b>${I.mode==='+'?'Mark':'Unmark'}</b><input id="ibIn" aria-label="Pattern" value="${h(I.q)}" spellcheck="false">`+tail('Apply'):
   I.kind==='go'?`${ico('folder')}<b>Go to</b><input id="ibIn" aria-label="Path" style="width:340px" placeholder="~/projects/atlas/src" spellcheck="false">`+tail('Go'):
-  `${ico('search')}<b>Find</b><label>Name</label><input id="ibIn" aria-label="File name" placeholder="*.md" spellcheck="false"><label>Contains</label><input id="ibIn2" aria-label="File contents" spellcheck="false"><select id="ibWhere" aria-label="Search in"><option value="vol">This volume</option><option value="here">This folder</option><option value="all">All volumes</option></select>`+tail('Keep results');
+  `${ico('search')}<b>Find</b><label>Name</label><input id="ibIn" aria-label="File name" placeholder="*.md" spellcheck="false"><label>Contains</label><input id="ibIn2" aria-label="File contents" spellcheck="false"><span class="seg" role="radiogroup" aria-label="Search in">${[['here','Folder','⌘1'],['vol','Volume','⌘2'],['all','All','⌘3']].map(([v,l,k])=>`<button role="radio" aria-checked="${I.where===v}" class="${I.where===v?'on':''}" data-a="ibwhere" data-v="${v}">${l}<kbd>${k}</kbd></button>`).join('')}</span>`+tail('Keep Results');
   ibUpdate();const f=$('ibIn');f.focus();f.select()}
 function ibUpdate(){const I=S.ib,v=$('ibIn').value,N=$('ibN');
   if(I.kind==='mp'){I.q=v;I.re=glob(v);panel(S.active);const n=v?shown(A()).filter(i=>!i.dir&&I.re.test(full(i))).length:0;N.textContent=`${n} file${n===1?'':'s'} match${n===1?'es':''}`;gutter()}
   if(I.kind==='go')N.textContent='';
-  if(I.kind==='find'){const t=A();t.items=findAll(v,$('ibIn2').value,$('ibWhere').value,I.prev);t.cur=sortItems(t.items.map(i=>({i})),t.sort)[0]?.i||null;t.top=0;t.name=v?`Find: ${v}`:'Find';panel(S.active);gutter();N.textContent=`${t.items.length} file${t.items.length===1?'':'s'}`}}
+  if(I.kind==='find'){const t=A();t.items=findAll(v,$('ibIn2').value,I.where,I.prev);t.cur=sortItems(t.items.map(i=>({i})),t.sort)[0]?.i||null;t.top=0;t.name=v?`Find: ${v}`:'Find';panel(S.active);gutter();N.textContent=''}}
 function ibOpen(kind,o={}){S.view=false;S.ib={kind,q:'',...o,re:glob(o.q||'')};render()}
 function ibClose(){S.ib=null;render()}
 function ibCancel(){const I=S.ib;if(I.kind==='find'){const P=S.panels[S.active];P.tabs.pop();P.tab=I.prev}ibClose()}
@@ -358,7 +358,8 @@ function gotoPath(v){const want=v.replace(/\/$/,''),hit=S.panels.flatMap(P=>P.ta
 function findAll(name,has,where,prev){const P=S.panels[S.active],tabs=where==='here'?[P.tabs[prev]]:S.panels.flatMap(x=>x.tabs).filter(t=>!t.res&&(where==='all'||t.crumbs[0]===P.tabs[prev].crumbs[0])),q=name.trim().toLowerCase();if(!q&&!has)return[];
   const re=/[*?,]/.test(q)?glob(q):null,c=has.toLowerCase();
   return tabs.flatMap(t=>t.items.filter(i=>(S.hidden||!isHid(i))&&(!q||(re?re.test(full(i)):full(i).toLowerCase().includes(q)))&&(!c||(TEXT[i.e]||'').toLowerCase().includes(c))).map(i=>({...i,where:pathStr(t)})))}
-function startFind(){if(S.mode!=='browse')return;const P=S.panels[S.active],t=tabOf('Find',['Find results'],'',[]);t.res=true;const prev=P.tab;t.back=prev;P.tabs.push(t);P.tab=P.tabs.length-1;ibOpen('find',{prev})}
+function startFind(){if(S.mode!=='browse')return;const P=S.panels[S.active],t=tabOf('Find',['Find results'],'',[]);t.res=true;const prev=P.tab;t.back=prev;P.tabs.push(t);P.tab=P.tabs.length-1;ibOpen('find',{prev,where:'vol'})}
+function ibWhere(v){const I=S.ib,a=document.activeElement?.id,q=$('ibIn').value,c=$('ibIn2').value;I.where=v;ibDraw();$('ibIn').value=q;$('ibIn2').value=c;ibUpdate();if(a&&$(a))$(a).focus()}
 function closeRes(){const P=S.panels[S.active],b=A().back;P.tabs.splice(P.tab,1);P.tab=Math.min(b,P.tabs.length-1);render()}
 function markBy(mode){const c=A().cur;ibOpen('mp',{mode,q:c&&!c.dir&&c.e?'*.'+c.e:'*.*'})}
 function invert(){const t=A();shown(t).filter(i=>!i.dir).forEach(i=>t.marked.has(i)?t.marked.delete(i):t.marked.add(i));render()}
@@ -569,6 +570,7 @@ const ACT={back:d=>{S.active=+d.p;step('hist','fwd','No earlier folder.')},forwa
   run:()=>S.mode==='rename'?applyRename():S.mode==='compare'?runSync():run(),
   conf:d=>{S.op.conf=d.v;render()},tab:d=>{S.panels[d.p].tab=+d.v;S.active=+d.p;render()},by:d=>{S.cp.by=d.v;cpAuto(S.cp);cpOpts();cpLists()},only:d=>cpOnly(d.v==='true'),
   sort:d=>{S.active=+d.p;sortBy(d.v)},palrun:d=>palRun(+d.v),cprow:d=>{S.cp.cur=+d.v;cpLists()},
+  ibwhere:d=>ibWhere(d.v),
   cplane:d=>{S.cp.cur=+d.v;const r=cpVis()[+d.v];if(r&&!r.dir)cpSet(r.act==='r'&&r.r?'l':r.l?'r':'l')}};
 document.addEventListener('click',e=>{if(S.menu&&!e.target.closest('#menu'))closeMenu();if(S.ib&&!e.target.closest('#bar'))return;const a=e.target.closest('[data-a]');if(a&&a.dataset.a==='row')return rowClick(a,e);if(a&&ACT[a.dataset.a]){ACT[a.dataset.a](a.dataset);if(a.tagName==='BUTTON')a.blur?.()}});
 function rowClick(a,e){const p=+a.dataset.p,t=tab(p);if(S.mode!=='browse')return;S.active=p;const r=rowsOf(p)[+a.dataset.i];if(!r||!real(r))return;t.cur=r.i;if(e.metaKey&&!r.i.up)t.marked.has(r.i)?t.marked.delete(r.i):t.marked.add(r.i);render()}
@@ -578,11 +580,11 @@ document.addEventListener('wheel',e=>{if(S.mode==='rename'&&e.target.closest('#v
 document.addEventListener('input',e=>{const o=e.target.dataset.o;if(o&&S.rn){S.rn[o]=e.target.type==='checkbox'?e.target.checked:e.target.type==='number'?+e.target.value:e.target.value;rnLists();bar()}else if(e.target.id==='palIn'){S.pal.q=e.target.value.toLowerCase();S.pal.i=0;palList()}else if(e.target.id==='arcName'){S.op.items[0].n=e.target.value;panel(1-S.op.from);arcCheck()}else if(e.target.id==='ibIn'||e.target.id==='ibIn2'){ibUpdate()}else if(e.target.id==='ir'){S.ir.v=e.target.value}});
 document.addEventListener('change',e=>{if(e.target.id==='cpDel'){cpAllow(e.target.checked)}else if(e.target.dataset.o==='kase'&&S.rn){S.rn.kase=e.target.value;rnLists();bar()}});
 addEventListener('resize',render);
-document.addEventListener('change',e=>{if(e.target.id==='ibWhere')ibUpdate()});
 
 addEventListener('keydown',e=>{
   const k=e.key,c=e.metaKey,sh=e.shiftKey,lk=k.toLowerCase(),stop=()=>e.preventDefault(),inField=e.target.matches('input,select');
   if(c&&lk==='k'){stop();return palette(!S.pal)}
+  if(c&&S.ib?.kind==='find'&&'123'.includes(k)){stop();return ibWhere(['here','vol','all'][k-1])}
   if(c&&sh&&lk==='l'){stop();return theme()}
   if(S.menu){const m=S.menu,n=m.acts.length;if(k==='Escape'){stop();closeMenu()}else if(k==='ArrowDown'||k==='ArrowUp'){stop();m.i=(m.i+(k==='ArrowDown'?1:n-1))%n;drawMenu()}else if(k==='Enter'){stop();menuRun(m.i)}return}
   if(S.pal){if(k==='Escape')palette(false);else if(k==='ArrowDown'||k==='ArrowUp'){stop();const n=palHits().length;if(n){S.pal.i=(S.pal.i+(k==='ArrowDown'?1:n-1))%n;palList()}}else if(k==='Enter')palRun(S.pal.i);return}

@@ -6,6 +6,8 @@ import SwiftUI
 /// The file list. `NSTableView` only builds the rows on screen, so folder size barely affects it.
 struct FileTable: NSViewRepresentable {
     static let rowHeight: CGFloat = 20
+    /// The folder column in a results tab, which takes the place of the 96pt extension column.
+    static let folderWidth: CGFloat = 230
 
     let workspace: Workspace
     let index: Int
@@ -101,6 +103,7 @@ struct FileTable: NSViewRepresentable {
             }
             isMarked = { [panel = view.workspace.panels[view.index]] in panel.isMarked($0) }
             table.setAccessibilityLabel("\(view.workspace.panels[view.index].tab.title) files")
+            table.showFolderColumn(view.workspace.panels[view.index].isResults)
 
             if view.version != version {
                 let panel = view.workspace.panels[view.index]
@@ -254,7 +257,7 @@ struct FileTable: NSViewRepresentable {
             _ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int,
             proposedDropOperation operation: NSTableView.DropOperation
         ) -> NSDragOperation {
-            guard let view, view.workspace.pending == nil else { return [] }
+            guard let view, view.workspace.pending == nil, !view.workspace.panels[view.index].isResults else { return [] }
             if rows.indices.contains(row), operation == .on, rows[row].opensAsFolder {
                 tableView.setDropRow(row, dropOperation: .on)
             } else {
@@ -300,7 +303,8 @@ struct FileTable: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: column.identifier, owner: nil) as? FileCell ?? FileCell(kind)
             cell.identifier = column.identifier
             let style = view.flatMap { RowStyle($0.workspace.panels[$0.index], rows[row]) }
-            cell.show(rows[row], isCursor: row == cursor && isActive, isMarked: isMarked(rows[row]), style: style)
+            let isResults = view?.workspace.panels[view?.index ?? 0].isResults ?? false
+            cell.show(rows[row], isCursor: row == cursor && isActive, isMarked: isMarked(rows[row]), style: style, isResults: isResults)
             return cell
         }
     }
@@ -352,7 +356,7 @@ struct FileTable: NSViewRepresentable {
             if workspace.patternBar != nil {
                 workspace.cancelPattern()
             } else if panel.query.isEmpty {
-                panel.clearMarks()
+                workspace.escape(in: panel)
             } else {
                 panel.endSearch()
             }
@@ -450,7 +454,7 @@ extension FileTable {
         if isMany { menu.addItem(.sectionHeader(title: "\(entries.count) Marked Items")) }
         menu.add("Copy to Other Panel") { workspace.begin(.copy, entries: entries) }
         if !panel.isInsideArchive {
-            menu.add("Move to Other Panel") { workspace.begin(.move, entries: entries) }
+            if !panel.isResults { menu.add("Move to Other Panel") { workspace.begin(.move, entries: entries) } }
             menu.add("Compress") { workspace.beginCompress() }
         }
         if panel.isInsideArchive || entries.contains(where: \.isArchive) {
@@ -461,6 +465,7 @@ extension FileTable {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects(entries.map(\.url) as [NSURL])
         }
+        guard !panel.isResults else { return menu }
         if isMany {
             menu.add("Multi-Rename", action: workspace.beginRename)
         } else {
@@ -593,6 +598,14 @@ final class KeyTable: NSTableView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if wantsFocus { takeFocus() }
+    }
+
+    /// A results tab's rows come from many folders, so the extension's column gives way to a wider one.
+    func showFolderColumn(_ isShown: Bool) {
+        let width = isShown ? FileTable.folderWidth : 96
+        guard tableColumns.indices.contains(1), tableColumns[1].width != width else { return }
+        tableColumns[1].width = width
+        fitColumns(to: enclosingScrollView?.contentSize.width ?? bounds.width)
     }
 
     /// The name column takes whatever the fixed columns leave, so every column stays on screen.
@@ -802,7 +815,7 @@ private final class FileCell: NSView {
         }
     }
 
-    func show(_ entry: FileEntry, isCursor: Bool, isMarked: Bool, style: RowStyle?) {
+    func show(_ entry: FileEntry, isCursor: Bool, isMarked: Bool, style: RowStyle?, isResults: Bool) {
         let isHidden = entry.isHidden && !entry.isParent
         let ink = isCursor ? Palette.cursorInk : style?.ink
             ?? (isMarked || (kind == .name && !isHidden) ? Palette.ink : Palette.dim)
@@ -811,19 +824,22 @@ private final class FileCell: NSView {
         case .name:
             let font = isMarked || style?.wash != nil || (entry.opensAsFolder && !entry.isParent) ? Self.boldFont : Self.font
             label.font = font
+            let name = isResults ? entry.fileName : entry.name
             if let tag = style?.tag {
-                let text = NSMutableAttributedString(string: entry.name, attributes: [.font: font, .foregroundColor: ink])
+                let text = NSMutableAttributedString(string: name, attributes: [.font: font, .foregroundColor: ink])
                 text.append(NSAttributedString(string: "   \(tag)", attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: ink]))
                 label.attributedStringValue = text
             } else {
-                label.stringValue = entry.name
+                label.stringValue = name
             }
             dot.isHidden = !isMarked
             dot.contentTintColor = ink
             icon.image = style?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: style?.tag) }
                 ?? Self.symbol(for: entry)
             icon.contentTintColor = style == nil && !isCursor ? Palette.dim : ink
-        case .ext: label.stringValue = entry.ext
+        case .ext:
+            label.lineBreakMode = isResults ? .byTruncatingHead : .byTruncatingTail
+            label.stringValue = isResults ? (entry.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath : entry.ext
         case .size: label.stringValue = entry.size.map(FileSize.format) ?? ""
         case .modified: label.stringValue = entry.modified.map(RowFormat.date) ?? ""
         }

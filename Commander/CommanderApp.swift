@@ -94,6 +94,9 @@ private struct BrowseCommands: Commands {
             Button("Compare and Sync…", action: workspace.beginCompare)
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(workspace.isTyping)
+            Button("Find Files…", action: workspace.beginFind)
+                .keyboardShortcut("f")
+                .disabled(workspace.isTyping)
             Button("Show Actions") { NSApp.sendAction(#selector(KeyTable.showActions(_:)), to: nil, from: nil) }
                 .keyboardShortcut("m", modifiers: [.command, .option])
             Button("Copy Path") { workspace.copyPath() }
@@ -107,6 +110,7 @@ private struct BrowseCommands: Commands {
             Divider()
             Button("Stop Job", action: workspace.jobs.stopCurrent).disabled(workspace.jobs.current == nil)
             Button("Stop Command", action: workspace.stopCommand).disabled(workspace.runningCommand == nil)
+            Button("Stop Search") { workspace.find?.stop() }.disabled(workspace.find?.isSearching != true)
         }
         CommandGroup(after: .pasteboard) {
             Button("Move Here") { workspace.paste(Pasteboard.fileURLs(), move: true) }

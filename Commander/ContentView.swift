@@ -113,6 +113,8 @@ private struct StatusBar: View {
                 GoToBar(workspace: workspace)
             } else if let bar = workspace.patternBar {
                 PatternEntryBar(workspace: workspace, bar: bar).id(bar.id)
+            } else if let session = workspace.find, session.isBarOpen {
+                FindBar(workspace: workspace, session: session)
             } else if let job = workspace.jobs.current {
                 JobBar(workspace: workspace, job: job)
             } else if let command = workspace.runningCommand {
@@ -361,6 +363,63 @@ private struct PatternEntryBar: View {
         .onAppear {
             text = bar.text
             isFocused = true
+        }
+    }
+}
+
+/// Fills a results tab as you type, so the search can be narrowed while it runs.
+private struct FindBar: View {
+    private enum Field {
+        case name, contains
+    }
+
+    let workspace: Workspace
+    @Bindable var session: FindSession
+
+    @FocusState private var focus: Field?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.ink).accessibilityHidden(true)
+            Text("Find").fontWeight(.semibold).foregroundStyle(Theme.ink)
+            Text("Name")
+            field("File name", $session.query.name, prompt: "*.md", .name)
+            Text("Contains")
+            field("File contents", $session.query.contains, prompt: "", .contains)
+            Picker("Search in", selection: $session.scope) {
+                Text("Folder ⌘1").tag(FindScope.folder)
+                Text("Volume ⌘2").tag(FindScope.volume)
+                Text("All ⌘3").tag(FindScope.allVolumes)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .background { scopeKeys }
+            Spacer()
+            Button("Cancel  esc", action: workspace.cancelFind)
+            Button("Keep Results  ↩", action: workspace.keepFind).disabled(session.query.isEmpty)
+        }
+        // The table redraws in the same pass, and SwiftUI would undo a focus change made during it.
+        .onAppear { DispatchQueue.main.async { focus = .name } }
+    }
+
+    private func field(_ title: String, _ text: Binding<String>, prompt: String, _ name: Field) -> some View {
+        TextField(title, text: text, prompt: Text(prompt))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 12, design: .monospaced))
+            .frame(width: 160)
+            .focused($focus, equals: name)
+            .onSubmit(workspace.keepFind)
+            .onExitCommand(perform: workspace.cancelFind)
+    }
+
+    /// The keys for the scope, which a segmented control has no way to take.
+    private var scopeKeys: some View {
+        ForEach(Array(FindScope.allCases.enumerated()), id: \.element) { offset, scope in
+            Button("") { session.scope = scope }
+                .keyboardShortcut(KeyEquivalent(Character("\(offset + 1)")))
+                .opacity(0)
+                .accessibilityHidden(true)
         }
     }
 }
