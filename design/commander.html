@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Commander</title>
+<style>
+:root{--case:#262523;--deck:#1E1D1C;--rim:#000;--line:#3A3936;--ink:#ECE8DE;--dim:#A7A296;--cur:#D9D5CA;--cur-ink:#1A1917;--field:#161514;
+--go:#3FA34D;--go-hi:#58C168;--go-ink:#0D240F;--go-t:#86DC94;--go-bg:rgba(63,163,77,.2);
+--mv:#F2B705;--mv-hi:#FFD24E;--mv-ink:#2F2300;--mv-t:#F7CF58;--mv-bg:rgba(242,183,5,.17);
+--rm:#D8412F;--rm-hi:#EC6A59;--rm-ink:#fff;--rm-t:#F6A094;--rm-bg:rgba(216,65,47,.22);
+--key:#3A3834;--key-hi:#55524C;--key-ink:#ECE8DE;color-scheme:dark}
+:root[data-theme=light]{--case:#DDD9CF;--deck:#F3F1EB;--rim:#B9B4A7;--line:#CFCABD;--ink:#1E1D1B;--dim:#5E5A51;--cur:#2B2A27;--cur-ink:#F3F1EB;--field:#FBFAF6;
+--go-t:#1B6A28;--go-bg:rgba(63,163,77,.2);--mv-t:#6E5000;--mv-bg:rgba(242,183,5,.26);--rm-t:#A02719;--rm-bg:rgba(216,65,47,.15);
+--key:#C9C5BA;--key-hi:#ECE9E1;--key-ink:#1E1D1B;color-scheme:light}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:38px minmax(0,1fr) 36px 30px;min-width:1000px;min-height:600px;background:var(--case);color:var(--ink);font:12px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;user-select:none}
+::selection{background:var(--cur);color:var(--cur-ink)}
+button,input,select{font:inherit;color:inherit}
+button{border:0;background:none;cursor:default;padding:0}
+:focus-visible{outline:2px solid var(--cur);outline-offset:1px}
+.i{flex:none;display:inline-block;vertical-align:-2px}
+kbd{font:inherit;color:var(--dim)}
+.top{position:relative;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--rim)}
+.lights{display:flex;gap:8px}.lights i{width:12px;height:12px;border-radius:50%}.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.cmd{position:absolute;left:50%;top:7px;transform:translateX(-50%);width:360px;height:24px;border-radius:12px;background:var(--deck);color:var(--dim);display:flex;align-items:center;gap:8px;padding:0 12px}.cmd kbd{margin-left:auto}
+#mini{margin-left:auto;color:var(--dim)}
+#stage{min-height:0}
+.view{display:none;height:100%;min-height:0}.view.on{display:grid;grid-template-columns:minmax(0,1fr)}
+#v-browse{grid-template-columns:minmax(0,1fr) 84px minmax(0,1fr)}
+#v-rename.on,#v-compare.on{grid-template-rows:44px minmax(0,1fr)}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 84px minmax(0,1fr);min-height:0}
+.p{display:grid;grid-template-rows:28px 28px 22px minmax(0,1fr) 24px;min-height:0;background:var(--deck)}
+.p.plain{grid-template-rows:28px 22px minmax(0,1fr)}
+.tabs{display:flex;align-items:flex-end;gap:1px;padding:0 8px;background:var(--case)}
+.tabs button{height:24px;padding:0 12px;border-radius:6px 6px 0 0;color:var(--dim)}.tabs button.on{background:var(--deck);color:var(--ink)}
+.path{display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--line);color:var(--dim);white-space:nowrap}.path b{color:var(--ink);font-weight:600}.path em{margin-left:auto;font-style:normal}
+.p.act .path{box-shadow:inset 0 2px 0 var(--cur)}
+.title{display:flex;align-items:center;padding:0 8px;border-bottom:1px solid var(--line);color:var(--dim);background:var(--case)}.title b{color:var(--ink);font-weight:600;margin-right:6px}
+.r{display:grid;grid-template-columns:minmax(0,1fr) 96px 84px 106px;align-items:center;height:20px;line-height:20px;padding:0 8px;white-space:nowrap}
+.r>*{overflow:hidden;text-overflow:ellipsis}.r>:nth-child(2),.r>:nth-child(3),.r>:nth-child(4){color:var(--dim)}.r>:nth-child(3),.r>:nth-child(4){text-align:right}
+.hd{height:22px;border-bottom:1px solid var(--line);font-size:11px}.hd button{height:22px;text-align:inherit;color:var(--dim);width:100%}.hd button[aria-sort]{color:var(--ink);font-weight:600}
+.name{display:flex;align-items:center;gap:6px;min-width:0}.name span{overflow:hidden;text-overflow:ellipsis}.name small{font-size:11px;color:inherit;opacity:.85;margin-left:4px;font-weight:400;flex:none}
+.tk{width:6px;height:6px;border-radius:50%;flex:none}.mk .tk{background:currentColor}
+.r.dir .name{font-weight:600}.r.dir .i{color:var(--dim)}
+.mk{color:var(--ink)}.mk .name{font-weight:600}.mk>:nth-child(n+2){color:var(--ink)}
+.list{overflow:hidden}
+.r.cur,.p:not(.act) .r.cur{background:var(--cur);color:var(--cur-ink)}.r.cur>*,.r.cur .i{color:var(--cur-ink)}
+.p:not(.act) .r.cur{background:none;color:var(--ink);box-shadow:inset 0 0 0 1px var(--dim)}.p:not(.act) .r.cur>:first-child{color:var(--ink)}.p:not(.act) .r.cur>:nth-child(n+2),.p:not(.act) .r.cur .i{color:var(--dim)}
+.r.k-go,.r.k-go>*,.r.k-go .i{color:var(--go-t)}.r.k-go{background:var(--go-bg)}.r.k-go .name{font-weight:600}
+.r.k-mv,.r.k-mv>*,.r.k-mv .i{color:var(--mv-t)}.r.k-mv{background:var(--mv-bg)}.r.k-mv .name{font-weight:600}
+.r.k-rm,.r.k-rm>*,.r.k-rm .i{color:var(--rm-t)}.r.k-rm{background:var(--rm-bg)}.r.k-rm .name{font-weight:600}
+.r.k-skip,.r.k-skip>*{color:var(--dim)}
+.r.err{background:var(--line)}.r.err,.r.err>*,.r.err .i{color:var(--ink)}.r.err .name{font-weight:600}
+.r.hid .name,.r.hid .name .i{color:var(--dim)}
+.r.cur.k-skip,.r.cur.k-rm,.r.cur.k-go,.r.cur.k-mv{background:var(--cur)}.r.cur.k-skip>*,.r.cur.k-rm>*,.r.cur.k-go>*,.r.cur.k-mv>*,.r.cur.k-rm .i,.r.cur.k-skip .i,.r.cur.hid .name,.r.cur.hid .name .i{color:var(--cur-ink)}
+.r.enter{animation:arrive .2s cubic-bezier(.16,1,.3,1)}
+@keyframes arrive{from{opacity:0;transform:translateY(-6px)}}
+.empty{padding:32px 16px;text-align:center;color:var(--dim);line-height:1.5}
+.foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 8px;color:var(--dim);border-top:1px solid var(--line);background:var(--case)}.foot b{color:var(--ink);font-weight:600}.foot .q{display:flex;align-items:center;gap:6px;color:var(--ink)}
+.gut{display:grid;grid-template-rows:minmax(0,1fr) auto minmax(0,1fr);justify-items:center;border-inline:1px solid var(--rim);padding:8px 0;overflow:hidden}
+.gt,.gb{display:flex;flex-direction:column;align-items:center;gap:6px;min-height:0;padding:3px 0}.gt{justify-content:flex-end;width:100%}.gb{justify-content:flex-start}.gt .way{margin-bottom:auto}
+.way{display:flex;flex-direction:column;align-items:center;gap:5px;padding-bottom:8px;border-bottom:1px solid var(--line);width:60px;text-align:center}.way strong{font-size:20px;font-weight:600;letter-spacing:-.02em}.way small{font-size:11px;color:var(--dim)}
+.flip .fl{transform:scaleX(-1)}
+.k{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--dim);font-size:11px;width:80px}
+.k b{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 38% 30%,var(--key-hi),var(--key) 72%);box-shadow:0 2px 3px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.14);color:var(--key-ink);transition:transform .14s cubic-bezier(.16,1,.3,1),box-shadow .14s cubic-bezier(.16,1,.3,1)}
+.k span{white-space:nowrap;font-size:10.5px;letter-spacing:-.01em}
+.k.go b{background:radial-gradient(circle at 38% 30%,var(--go-hi),var(--go) 72%);color:var(--go-ink)}
+.k.mv b{background:radial-gradient(circle at 38% 30%,var(--mv-hi),var(--mv) 72%);color:var(--mv-ink)}
+.k.rm b{background:radial-gradient(circle at 38% 30%,var(--rm-hi),var(--rm) 72%);color:var(--rm-ink)}
+.k:hover b{filter:brightness(1.07)}.k:active b,.k.down b,.k.held b{transform:translateY(2px);box-shadow:0 0 1px rgba(0,0,0,.5),inset 0 2px 3px rgba(0,0,0,.35)}.k.held{color:var(--ink)}
+.k:disabled{opacity:.38}.rule{width:44px;height:1px;background:var(--line);flex:none}
+.lanes{border-inline:1px solid var(--rim);background:var(--case);padding-top:50px;overflow:hidden}
+.lanes .fl{transform:scaleX(-1)}
+.lane{height:20px;display:grid;place-items:center;width:100%}.lane.cur{background:var(--cur)}.lane.cur .m.off{color:var(--cur-ink)}
+.m{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle at 38% 30%,var(--key-hi),var(--key) 72%);box-shadow:0 1px 1px rgba(0,0,0,.4);color:var(--key-ink)}
+.m.go{background:radial-gradient(circle at 38% 30%,var(--go-hi),var(--go) 72%);color:var(--go-ink)}.m.rm{background:radial-gradient(circle at 38% 30%,var(--rm-hi),var(--rm) 72%);color:var(--rm-ink)}.m.off{background:none;box-shadow:none;color:var(--dim)}
+.m.hit{animation:dep .16s cubic-bezier(.16,1,.3,1)}@keyframes dep{from{transform:translateY(1px) scale(.9)}}
+#bar{display:flex;align-items:center;gap:12px;padding:0 14px;background:var(--deck);border-top:1px solid var(--rim);color:var(--dim);white-space:nowrap;overflow:hidden}
+#bar b{color:var(--ink);font-weight:600}#bar .sp{margin-left:auto}#bar .t-rm{color:var(--rm-t)}#bar input{height:26px;width:170px;border:1px solid var(--line);border-radius:5px;background:var(--field);padding:0 8px;color:var(--ink);user-select:text}
+.prog{flex:1;min-width:80px;height:4px;border-radius:2px;background:var(--line);overflow:hidden}.prog i{display:block;height:100%;background:var(--go)}.prog.mv i{background:var(--mv)}.prog.rm i{background:var(--rm)}
+.b{height:26px;padding:0 12px;border-radius:5px;background:var(--key);color:var(--key-ink);display:inline-flex;align-items:center;gap:7px}.b kbd{color:inherit;opacity:.72}.b:hover{filter:brightness(1.08)}.b:disabled{opacity:.42;filter:none}
+.b.go kbd,.b.mv kbd,.b.rm kbd,.b.pl kbd{opacity:1}.b.go{background:var(--go);color:var(--go-ink);font-weight:600}.b.mv{background:var(--mv);color:var(--mv-ink);font-weight:600}.b.rm{background:var(--rm);color:var(--rm-ink);font-weight:600}.b.pl{background:var(--cur);color:var(--cur-ink);font-weight:600}
+.seg{display:inline-flex;background:var(--case);border-radius:6px;padding:2px;gap:1px}.seg button{height:24px;padding:0 10px;border-radius:4px;color:var(--dim)}.seg button.on{background:var(--key);color:var(--key-ink);box-shadow:0 1px 1px rgba(0,0,0,.25)}
+.seg kbd{margin-left:5px}.seg button.on kbd{color:inherit;opacity:.72}
+.cl{display:flex;align-items:center;gap:8px;padding:0 14px;border-top:1px solid var(--line);color:var(--dim);white-space:nowrap}.cl input{flex:1;height:22px;border:0;background:none;outline-offset:0;color:var(--ink);font-family:ui-monospace,"SF Mono",Menlo,monospace;user-select:text}
+.opts{display:flex;align-items:center;gap:10px;padding:0 12px;overflow:hidden;background:var(--case);border-bottom:1px solid var(--rim);white-space:nowrap;color:var(--dim)}
+input[type=checkbox]{accent-color:var(--cur)}
+.opts label{display:inline-flex;align-items:center;gap:6px}
+.opts input[type=text],.opts input[type=number],.opts select{height:26px;border:1px solid var(--line);border-radius:5px;background:var(--field);padding:0 8px;color:var(--ink);user-select:text}
+.opts .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}.opts .sp{margin-left:auto}
+.ov{position:fixed;inset:0;display:none;justify-content:center;align-items:flex-start;padding-top:78px;background:rgba(0,0,0,.3);z-index:5}.ov.on{display:flex}
+.sheet{width:520px;max-height:calc(100vh - 120px);background:var(--deck);border:1px solid var(--line);border-radius:10px;box-shadow:0 18px 42px rgba(0,0,0,.42);overflow:hidden;display:flex;flex-direction:column}
+.sheet.wide{width:680px}.sheet input{flex:none;height:40px;border:0;border-bottom:1px solid var(--line);background:none;padding:0 14px;font-size:14px;user-select:text;outline:0}
+.pal{overflow:auto;padding:4px}.pal button{width:100%;height:28px;padding:0 10px;border-radius:5px;display:flex;align-items:center;gap:8px;text-align:left}.pal button kbd{margin-left:auto}.pal button.on{background:var(--cur);color:var(--cur-ink)}.pal button.on kbd{color:inherit}
+.fw{transform:scaleX(-1)}.path .nv{width:18px;height:20px;display:grid;place-items:center;color:var(--ink);flex:none}.path .nv:disabled{color:var(--dim);opacity:.45}
+.p.res .r{grid-template-columns:minmax(0,1fr) 230px 84px 106px}
+#bar select{height:26px;border:1px solid var(--line);border-radius:5px;background:var(--field);padding:0 6px;color:var(--ink)}
+.menu{position:fixed;z-index:6;display:none;width:230px;max-height:calc(100vh - 16px);overflow:auto;padding:4px;background:var(--deck);border:1px solid var(--line);border-radius:7px;box-shadow:0 10px 26px rgba(0,0,0,.4)}.menu.on{display:block}
+.menu button{width:100%;height:24px;padding:0 8px;border-radius:4px;display:flex;align-items:center;gap:8px;text-align:left}.menu button kbd{margin-left:auto}.menu button.on{background:var(--cur);color:var(--cur-ink)}.menu button.on kbd{color:inherit}
+.menu small{display:block;padding:7px 8px 3px;font-size:11px;color:var(--dim)}.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
+.p.vw{grid-template-rows:28px minmax(0,1fr) 24px}
+.vh{display:flex;align-items:center;gap:6px;padding:0 8px;background:var(--case);border-bottom:1px solid var(--line);font-weight:600}.vh span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vh button{margin-left:auto;height:20px}
+.vb{padding:10px 8px;overflow:auto;font:12px/1.55 ui-monospace,"SF Mono",Menlo,monospace;white-space:pre-wrap;user-select:text}
+.r input{height:18px;width:100%;border:1px solid var(--cur);border-radius:3px;background:var(--field);color:var(--ink);padding:0 4px;user-select:text}.r.cur input{border-color:var(--cur-ink)}
+@media (max-width:1280px){.opts .hint{display:none}.opts input[data-o=name]{width:130px}.opts input[data-o=find],.opts input[data-o=rep]{width:84px}.opts{gap:8px}}
+@media (max-height:760px){.k{font-size:0;gap:0}.k span{display:none}.k b{width:30px;height:30px}.gt,.gb{gap:5px}.way small{display:none}.way{gap:2px}}
+@media (prefers-reduced-motion:reduce){.r.enter,.m.hit{animation:none}.k b{transition:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="folder" viewBox="0 0 16 16"><path fill="currentColor" d="M1.5 3.5a1 1 0 0 1 1-1h3.6l1.5 1.6h5.900a1 1 0 0 1 1 1v7.400a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></symbol>
+<symbol id="file" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.2" d="M3.500 1.800h6l3 3v9.400h-9zM9.500 1.800v3h3"/></symbol>
+<symbol id="up" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.400" d="M8 13V3.500M4 7l4-4 4 4"/></symbol>
+<symbol id="copy" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M5.500 5.500h8v8h-8zM10.500 5.500v-3h-8v8h3"/></symbol>
+<symbol id="move" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.600" d="M2 8h11M9 4l4 4-4 4"/></symbol>
+<symbol id="trash" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M2.500 4h11M6 4V2.200h4V4M4 4l.7 10h6.600L12 4"/></symbol>
+<symbol id="eye" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M1.500 8S4 3.500 8 3.500 14.500 8 14.500 8 12 12.500 8 12.500 1.500 8 1.500 8zM8 6.200a1.800 1.800 0 1 0 0 3.600 1.800 1.800 0 0 0 0-3.600z"/></symbol>
+<symbol id="edit" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M2.500 13.500l.8-3.300 7.700-7.700 2.500 2.500-7.700 7.700zM9.500 4L12 6.500"/></symbol>
+<symbol id="plus" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.600" d="M8 2.500v11M2.500 8h11"/></symbol>
+<symbol id="check" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.800" d="M3 8.500l3.300 3.300L13 4.500"/></symbol>
+<symbol id="search" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M7 2.500a4.500 4.500 0 1 0 0 9 4.500 4.500 0 0 0 0-9zM10.500 10.500L14 14"/></symbol>
+<symbol id="rename" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M2 4.500h12v7H2zM5 2.500h6M8 2.500v11M5 13.500h6"/></symbol>
+<symbol id="compare" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M1.800 2.800h5v10.400h-5zM9.200 2.800h5v10.400h-5zM9.200 6h5M9.200 9.500h5"/></symbol>
+<symbol id="alert" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M8 2l6.500 11.500h-13zM8 6.500v3.500M8 11.300v.9"/></symbol>
+<symbol id="dash" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="2" d="M4 8h8"/></symbol>
+<symbol id="equal" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.800" d="M4 6h8M4 10h8"/></symbol>
+<symbol id="archive" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M2 3h12v3H2zM3 6v7.500h10V6M6.500 8.800h3"/></symbol>
+<symbol id="unpack" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M2 3h12v3H2zM3 6v7.500h10V6M8 12V8M6 9.800L8 7.800l2 2"/></symbol>
+<symbol id="chev" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.700" d="M10 3L5 8l5 5"/></symbol>
+<symbol id="term" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.500" d="M1.800 2.800h12.400v10.400H1.800zM4.500 6l2 2-2 2M8.500 10.500h3"/></symbol>
+<symbol id="close" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.600" d="M4 4l8 8M12 4l-8 8"/></symbol>
+</defs></svg>
+
+<header class="top"><div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+<button class="cmd" data-a="palette" aria-label="Run a command"><svg class="i" width="13" height="13"><use href="#search"/></svg>Run a command<kbd>⌘K</kbd></button><span id="mini"></span></header>
+
+<main id="stage">
+<section id="v-browse" class="view on" aria-label="Browse">
+<div class="p" id="p0"></div><div class="gut" id="gut"></div><div class="p" id="p1"></div>
+</section>
+<section id="v-rename" class="view" aria-label="Multi-rename"><div class="opts" id="rnOpts"></div>
+<div class="split"><div class="p plain act"><div class="title"><b>Before</b><span id="rnFrom"></span></div><div class="r hd"><span>Name</span><span>Ext</span><span>Size</span><span>Modified</span></div><div class="list" id="rnL"></div></div>
+<div class="lanes" id="rnM"></div>
+<div class="p plain act"><div class="title"><b>After</b><span id="rnCount"></span></div><div class="r hd"><span>Name</span><span>Ext</span><span>Size</span><span>Modified</span></div><div class="list" id="rnR"></div></div></div></section>
+<section id="v-compare" class="view" aria-label="Compare and sync"><div class="opts" id="cpOpts"></div>
+<div class="split"><div class="p plain act"><div class="title"><b>docs</b><span>~/projects/atlas</span></div><div class="r hd"><span>Name</span><span></span><span>Size</span><span>Modified</span></div><div class="list" id="cpL"></div></div>
+<div class="lanes" id="cpM"></div>
+<div class="p plain act"><div class="title"><b>docs</b><span>Archive T7 / backups / atlas</span></div><div class="r hd"><span>Name</span><span></span><span>Size</span><span>Modified</span></div><div class="list" id="cpR"></div></div></div></section>
+</main>
+
+<div id="bar" role="status" aria-live="polite"></div>
+<div class="cl"><span>%</span><input id="cl" aria-label="Command line" spellcheck="false" autocomplete="off"></div>
+<div class="menu" id="menu" role="menu" aria-label="File actions"></div>
+<div class="ov" id="pal"><div class="sheet" role="dialog" aria-label="Commands"><input id="palIn" placeholder="Run a command" aria-label="Filter commands" spellcheck="false"><div class="pal" id="palList"></div></div></div>
+
+<script>
+const $=id=>document.getElementById(id), h=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ico=(n,s=13,c='')=>`<svg class="i ${c}" width="${s}" height="${s}" aria-hidden="true"><use href="#${n}"/></svg>`;
+const UNIT={B:1,KB:1e3,MB:1e6,GB:1e9}, fmt=b=>b>=99995e4?(b/1e9).toFixed(2)+' GB':b>=99995e1?(b/1e6).toFixed(1)+' MB':b>=1e3?(b/1e3).toFixed(1)+' KB':Math.round(b)+' B';
+const mk=(n,e,s,d)=>({n,e,s,d,b:s?parseFloat(s)*UNIT[s.split(' ')[1]]:0,t:+new Date(d.replace(/^(\d+ \w+)/,'$1 2026')),dir:!s});
+const parse=t=>t.trim().split('\n').map(l=>mk(...l.trim().split('|')));
+const full=i=>i.e?i.n+'.'+i.e:i.n, cmp=(a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'});
+
+// All listings are synthetic demo data.
+const DIST=parse(`.cache|||28 Oct 16:40
+.DS_Store||12.3 KB|28 Oct 16:47
+.env.production||1.2 KB|12 Oct 10:21
+assets|||28 Oct 16:42
+chunks|||28 Oct 16:42
+locales|||27 Oct 09:15
+maps|||28 Oct 16:42
+plugins|||21 Oct 11:03
+workers|||28 Oct 16:41
+atlas-1.8.2-arm64|dmg|412.6 MB|28 Oct 16:44
+atlas-1.8.2-x64|dmg|438.1 MB|28 Oct 16:46
+atlas-1.8.2-arm64|zip|398.2 MB|28 Oct 16:44
+atlas-1.8.2-x64|zip|421.7 MB|28 Oct 16:46
+atlas-1.8.2|sha256|312 B|28 Oct 16:46
+atlas-1.8.2.dmg|sig|566 B|28 Oct 16:47
+RELEASE_NOTES|md|8.4 KB|28 Oct 15:58
+appcast|xml|2.1 KB|28 Oct 16:47
+build-manifest|json|41.3 KB|28 Oct 16:42
+bundle-report|html|1.2 MB|28 Oct 16:42
+bundle-stats|json|6.8 MB|28 Oct 16:42
+crash-symbols|tar.gz|84.9 MB|28 Oct 16:43
+entitlements|plist|1.4 KB|12 Oct 10:21
+favicon|icns|226 KB|03 Sep 14:37
+index|html|3.7 KB|28 Oct 16:42
+license-report|csv|96.2 KB|28 Oct 16:42
+main.3f9c1e|js|2.4 MB|28 Oct 16:42
+main.3f9c1e.js|map|9.1 MB|28 Oct 16:42
+main.a07b42|css|318 KB|28 Oct 16:42
+manifest|webmanifest|1.1 KB|12 Oct 10:21
+notarize-log|json|18.7 KB|28 Oct 16:51
+preload.9d21b0|js|64.8 KB|28 Oct 16:42
+renderer.c4e8f7|js|1.8 MB|28 Oct 16:42
+renderer.c4e8f7.js|map|7.3 MB|28 Oct 16:42
+robots|txt|68 B|03 Sep 14:37
+sbom|json|212 KB|28 Oct 16:43
+service-worker|js|22.5 KB|28 Oct 16:42
+update-feed|yml|884 B|28 Oct 16:47
+version|txt|6 B|28 Oct 16:42`);
+const ATLAS=parse(`.DS_Store||8.2 KB|14 Oct 12:30
+.sync-state||644 B|30 Oct 02:00
+1.6.0|||02 Jul 18:20
+1.7.0|||19 Aug 10:06
+1.7.1|||02 Sep 13:47
+1.7.2|||11 Sep 09:12
+1.8.0|||01 Oct 17:33
+1.8.1|||14 Oct 12:29
+betas|||22 Oct 08:51
+symbols|||14 Oct 12:30
+atlas-1.8.1-arm64|dmg|409.8 MB|14 Oct 12:18
+atlas-1.8.1-x64|dmg|435.0 MB|14 Oct 12:21
+atlas-1.8.1-arm64|zip|395.4 MB|14 Oct 12:18
+atlas-1.8.1-x64|zip|418.9 MB|14 Oct 12:21
+atlas-1.8.1|sha256|312 B|14 Oct 12:22
+RELEASE_NOTES|md|7.9 KB|14 Oct 11:40
+appcast|xml|1.9 KB|14 Oct 12:23
+archive-index|csv|14.2 KB|14 Oct 12:30
+checksums|txt|3.2 KB|14 Oct 12:30
+crash-symbols-1.8.1|tar.gz|83.1 MB|14 Oct 12:20
+crash-symbols-1.8.0|tar.gz|81.7 MB|01 Oct 17:29
+crash-symbols-1.7.2|tar.gz|80.4 MB|11 Sep 09:08
+delta-1.8.0-1.8.1|patch|38.6 MB|14 Oct 12:25
+delta-1.7.2-1.8.0|patch|41.2 MB|01 Oct 17:31
+download-stats|csv|228 KB|30 Oct 02:00
+keys|pub|742 B|02 Jul 18:20
+mirror-status|json|4.5 KB|30 Oct 02:00
+notarize-log-1.8.1|json|18.2 KB|14 Oct 12:27
+notarize-log-1.8.0|json|17.9 KB|01 Oct 17:32
+README|md|2.6 KB|02 Jul 18:20
+retention-policy|md|1.3 KB|02 Jul 18:20
+rollback-plan|md|4.8 KB|19 Aug 10:06
+sbom-1.8.1|json|209 KB|14 Oct 12:24
+sbom-1.8.0|json|205 KB|01 Oct 17:30
+signing-audit|csv|9.7 KB|14 Oct 12:27
+update-feed|yml|861 B|14 Oct 12:23
+version-history|md|11.2 KB|14 Oct 12:30`);
+const ARC=`Atlas.app|||28 Oct 16:44
+LICENSE||11.4 KB|03 Sep 14:37
+README|md|2.6 KB|02 Jul 18:20`;
+const TEXT={md:'# Atlas 1.8.2\n\n## Fixed\n- Sync no longer stalls on network volumes\n- Update feed retries after a timeout\n\n## Changed\n- Settings moved to a single window\n',
+xml:'<?xml version="1.0"?>\n<rss version="2.0">\n  <channel>\n    <title>Atlas</title>\n    <item>\n      <title>1.8.2</title>\n      <enclosure url="https://example.com/atlas-1.8.2.dmg"/>\n    </item>\n  </channel>\n</rss>\n',
+json:'{\n  "name": "atlas",\n  "version": "1.8.2",\n  "build": 4182,\n  "channel": "stable"\n}\n',
+yml:'version: 1.8.2\nfiles:\n  - url: atlas-1.8.2-arm64.zip\n  - url: atlas-1.8.2-x64.zip\nreleaseDate: 2026-10-28\n',
+txt:'1.8.2\n',csv:'package,version,license\nreact,18.3.1,MIT\nelectron,33.2.0,MIT\n',js:'export const version = "1.8.2";\nexport const channel = "stable";\n',css:'body {\n  margin: 0;\n  font: 13px system-ui;\n}\n',html:'<!doctype html>\n<title>Atlas</title>\n<div id="root"></div>\n'};
+const SRC=parse(`app|||29 Oct 18:02
+main|||29 Oct 17:44
+renderer|||29 Oct 18:10
+shared|||24 Oct 09:31
+index|ts|1.9 KB|22 Oct 10:15
+vite-env.d|ts|88 B|03 Sep 14:37`);
+const DL=parse(`atlas-design-review|pdf|4.1 MB|30 Oct 11:02
+export-2026-10|csv|18.6 MB|30 Oct 09:47
+fonts|zip|2.3 MB|26 Oct 14:20
+screenshot-2026-10-29|png|1.4 MB|29 Oct 21:13`);
+const BK=parse(`atlas-2026-10-28|tar.gz|2.1 GB|28 Oct 23:00
+atlas-2026-10-21|tar.gz|2.0 GB|21 Oct 23:00
+home-2026-10-01|tar.gz|38.4 GB|01 Oct 23:00`);
+const tabOf=(name,crumbs,free,items)=>({name,crumbs,free,items,marked:new Set,cur:null,top:0,sort:{k:'n',d:1},stack:[],hist:[],fwd:[]});
+const S={active:0,mode:'browse',panels:[{tab:0,tabs:[tabOf('dist',['~','projects','atlas','dist'],'482 GB free',DIST),tabOf('src',['~','projects','atlas','src'],'482 GB free',SRC),tabOf('Downloads',['~','Downloads'],'482 GB free',DL)]},{tab:0,tabs:[tabOf('atlas',['Archive T7','releases','atlas'],'1.21 TB free',ATLAS),tabOf('Backups',['Archive T7','backups'],'1.21 TB free',BK)]}],op:null,rn:null,cp:null,job:null,msg:null,qs:'',nf:null,pal:null,undo:null,hidden:false,view:false,ib:null,ir:null,menu:null};
+const isHid=i=>i.n.startsWith('.')&&!i.up, shown=t=>t.items.filter(i=>S.hidden||!isHid(i)), ARCH=/^(zip|tar|tar\.gz|tgz|7z|rar)$/, isArc=i=>!i.dir&&ARCH.test(i.e);
+const tab=p=>S.panels[p].tabs[S.panels[p].tab], A=()=>tab(S.active), UP={n:'..',e:'',s:null,d:'',b:0,t:0,dir:true,up:true};
+{const t=tab(0); t.items.filter(i=>/^atlas-1\.8\.2(-arm64|-x64)?$/.test(i.n)||i.n==='RELEASE_NOTES').forEach(i=>t.marked.add(i)); t.cur=t.items.find(i=>i.n==='appcast')}
+
+const pathStr=t=>t.crumbs.join('/').replace(/^Archive T7/,'/Volumes/Archive T7');
+const glob=q=>new RegExp('^('+q.split(/[,;]\s*/).filter(Boolean).map(x=>x.trim().replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'.*').replace(/\?/g,'.')).join('|')+')$','i');
+console.assert(glob('*.js, a?c').test('x.JS')&&glob('*.js, a?c').test('abc')&&!glob('*.js').test('x.json'),'glob');
+function isMk(t,i,p){const m=S.ib?.kind==='mp'&&p===S.active&&!i.dir&&S.ib.q?S.ib:null;return m&&m.re.test(full(i))?m.mode==='+':t.marked.has(i)}
+const snap=t=>({crumbs:t.crumbs,items:t.items,cur:t.cur,marked:t.marked,top:t.top,ro:t.ro,res:t.res,name:t.name,stack:[...t.stack]});
+function nav(t,f){t.hist.push(snap(t));t.fwd=[];f(t);render()}
+function step(from,to,none){const t=A();if(!t[from].length)return say(none);t[to].push(snap(t));Object.assign(t,t[from].pop());render()}
+function sortItems(rows,sort){const v=r=>sort.k==='n'?r.i.n:sort.k==='e'?r.i.e:sort.k==='s'?r.i.b:r.i.t;
+  return rows.sort((a,b)=>(b.i.dir-a.i.dir)||(typeof v(a)==='string'?cmp(v(a),v(b)):v(a)-v(b))*sort.d||cmp(full(a.i),full(b.i)))}
+// Rows the next operation will add or change, so a panel can show them before anything runs.
+function freeName(items,i){for(let c=2;;c++){const n=`${i.n} ${c}`;if(!items.some(x=>cmp(full(x),full({...i,n}))===0))return n}}
+function incoming(p){
+  const src=S.op||S.job?.op; if(!src||src.kind==='trash'||1-src.from!==p) return [];
+  return (S.op?src.items:S.job.left.map(j=>j.land)).map(i=>{const hit=tab(p).items.find(x=>cmp(full(x),full(i))===0),c=src.kind==='move'?'k-mv':'k-go';
+    if(!hit) return {i,c,g:'plus'};
+    if(src.conf==='skip') return {i:hit,c:'k-skip',g:hit.dir?'folder':'file',tag:'skipped',hit};
+    if(src.conf==='both') return {i:{...i,n:freeName(tab(p).items,i)},c,g:'plus'};
+    return {i,c:'k-rm',g:'alert',tag:i.t>=hit.t?'replaces older':'replaces newer',hit}})}
+function rowsOf(p){const t=tab(p),inc=incoming(p),o=S.op||S.job?.op,out=o&&o.from===p&&(o.kind==='move'||o.kind==='trash');
+  const gone=new Set(inc.filter(x=>x.hit).map(x=>x.hit)), outSet=new Set(out?(S.op?o.sel:S.job.left.map(j=>j.i)):[]);
+  const rows=shown(t).filter(i=>!gone.has(i)).map(i=>({i,c:outSet.has(i)?(o.kind==='move'?'k-mv':'k-rm'):'',g:outSet.has(i)?(o.kind==='move'?'move':'trash'):''}));
+  return [...(t.res?[]:[{i:UP}]),...sortItems(rows.concat(inc),t.sort)]}
+const real=r=>!r.c||r.c==='k-mv'&&r.g==='move'||r.c==='k-rm'&&r.g==='trash';
+function selection(p=S.active){const t=tab(p);if(S.only)return [S.only];return t.marked.size?[...t.marked]:t.cur&&!t.cur.up?[t.cur]:[]}
+function say(text,cls=''){S.msg={text,cls};clearTimeout(say.t);say.t=setTimeout(()=>{S.msg=null;bar()},4500);bar()}
+
+function viewPanel(p){const i=A().cur,el=$('p'+p);el.className='p vw';
+  const body=!i||i.dir?'<div class="empty">Move the cursor to a file to view it.</div>':TEXT[i.e]?`<div class="vb">${h(TEXT[i.e])}</div>`:`<div class="empty">Quick Look shows ${i.e?'.'+h(i.e):'this'} files in the real app.</div>`;
+  el.innerHTML=`<div class="vh">${ico(i&&i.dir?'folder':'file')}<span>${i?h(full(i)):'Viewer'}</span><button data-a="closeview" aria-label="Close viewer">${ico('close')}</button></div>${body}<div class="foot"><span>${i?.s||''}</span><span>${i?.d||''}</span></div>`}
+function panel(p){
+  if(S.view&&p===1-S.active) return viewPanel(p);
+  const live=(S.nf||S.ir)&&($('nf')||$('ir')); if(live&&$('p'+p).contains(live)) return;
+  const t=tab(p),el=$('p'+p),act=S.active===p&&S.mode==='browse',rows=rowsOf(p),srt=t.sort,cols=[['n','Name'],['e','Ext'],['s','Size'],['d','Modified']];
+  el.className='p'+(S.active===p?' act':'')+(t.res?' res':'');
+  const last=t.crumbs.length-1, path=t.crumbs.map((c,i)=>i===last?`<b>${h(c)}</b>`:h(c)+' /').join(' ');
+  const vis=shown(t), hid=t.items.length-vis.length, tb=vis.reduce((s,i)=>s+i.b,0);
+  const qs=act&&S.qs, qn=qs?vis.filter(i=>full(i).toLowerCase().includes(S.qs)).length:0;
+  el.innerHTML=`<div class="tabs" role="tablist">${S.panels[p].tabs.map((x,i)=>`<button role="tab" aria-selected="${i===S.panels[p].tab}" class="${i===S.panels[p].tab?'on':''}" data-a="tab" data-p="${p}" data-v="${i}">${h(x.name)}</button>`).join('')}</div>
+  <div class="path"><button class="nv" data-a="back" data-p="${p}" aria-label="Back" ${t.hist.length?'':'disabled'}>${ico('chev',12)}</button><button class="nv" data-a="forward" data-p="${p}" aria-label="Forward" ${t.fwd.length?'':'disabled'}>${ico('chev',12,'fw')}</button><span>${path}</span><em>${t.free}</em></div>
+  <div class="r hd">${cols.map(([k,l])=>`<button data-a="sort" data-p="${p}" data-v="${k}" ${srt.k===k?`aria-sort="${srt.d>0?'ascending':'descending'}"`:''}>${t.res&&k==='e'?'Folder':l}</button>`).join('')}</div>
+  <div class="list" id="list${p}" role="listbox" aria-multiselectable="true" aria-label="${h(t.name)} files"></div>
+  <div class="foot">${qs?`<span class="q">${ico('search',12)}<b>${h(S.qs)}</b></span><span>${qn?qn+(qn===1?' match':' matches'):'No match'}</span>`:`<span>${vis.length} item${vis.length===1?'':'s'}${hid?` · ${hid} hidden`:''}${t.ro?' · Read-only archive':''}</span><span>${fmt(tb)}</span>`}</div>`;
+  const list=$('list'+p), n=Math.max(1,Math.floor(list.clientHeight/20)); list.style.height=n*20+'px';
+  let ci=Math.max(0,rows.findIndex(r=>r.i===(t.cur||UP)));
+  // The preview must reach the row that matters, so a conflict below the fold cannot go unseen.
+  const dest=S.op&&S.op.kind!=='trash'&&1-S.op.from===p; let land=dest?rows.findIndex(r=>r.hit&&r.c==='k-rm'):-1; if(dest&&land<0)land=rows.findIndex(r=>r.c&&!real(r));
+  if(land>=0){if(land<t.top||land>=t.top+n)t.top=Math.max(0,land-2)}else{if(ci<t.top)t.top=ci;if(ci>=t.top+n)t.top=ci-n+1}
+  t.top=Math.max(0,Math.min(t.top,Math.max(0,rows.length-n)));
+  let html=rows.slice(t.top,t.top+n).map((r,x)=>rowHTML(r,p,x+t.top===ci&&real(r),t,x+t.top)).join('');
+  if(S.nf&&p===S.active) html=`<div class="r"><div class="name">${ico('folder')}<input id="nf" aria-label="New folder name" value="${h(S.nf)}"></div><span></span><span></span><span></span></div>`+html;
+  if(rows.length<(t.res?1:2)) html+=t.res?'<div class="empty">No files match.</div>':'<div class="empty">This folder is empty.<br>Press F7 for a new folder, or Backspace to go up.</div>';
+  list.innerHTML=html;
+  const nf=list.querySelector('#nf'); if(nf){nf.focus();nf.select()}
+  const ir=list.querySelector('#ir'); if(ir){ir.focus();ir.setSelectionRange(0,S.ir.i.n.length)}
+}
+function rowHTML(r,p,cur,t,n){const i=r.i,k=(S.op?.fresh&&r.c&&!real(r)?'enter ':'')+(r.c||'')+(i.dir?' dir':'')+(isMk(t,i,p)?' mk':'')+(isHid(i)?' hid':'')+(cur?' cur':'');
+  const g=r.g||(i.up?'up':i.dir?'folder':'file'), size=i.calc?fmt(i.calc):i.s||'';
+  return `<div class="r ${k}" role="option" aria-selected="${isMk(t,i,p)}" data-a="row" data-p="${p}" data-i="${n}"><div class="name"><b class="tk"></b>${ico(g)}${S.ir?.i===i?`<input id="ir" aria-label="New name" value="${h(S.ir.v)}" spellcheck="false">`:`<span>${h(t.res?full(i):i.n)}</span>`}${r.tag?`<small>${r.tag}</small>`:''}</div><span>${h(t.res?i.where:i.e)}</span><span>${size}</span><span>${i.d}</span></div>`}
+
+const KEYS={view:['eye','View','F3'],edit:['edit','Edit','F4'],copy:['copy','Copy','F5','go'],move:['move','Move','F6','mv'],new:['plus','New','F7'],trash:['trash','Trash','F8','rm'],rename:['rename','Rename','⌘⇧R'],compare:['compare','Compare','⌘⇧D'],compress:['archive','Compress','⌘⇧P'],extract:['unpack','Extract','⌘⇧U']};
+function gutter(){
+  const t=A(),d=tab(1-S.active),lock=t.ro||t.res,noDst=d.ro||d.res,sel=S.op?S.op.sel:S.ib?.kind==='mp'?shown(t).filter(i=>isMk(t,i,S.active)):selection(),away=sel.filter(i=>(i.where||pathStr(t))!==pathStr(d)), b=sel.reduce((s,i)=>s+(i.calc||i.b),0), held=S.op?.kind||S.job?.op.kind, off={copy:!away.length||noDst,move:!away.length||lock||noDst,trash:!sel.length||lock,compress:!sel.length||noDst,extract:!sel.some(isArc)||noDst,new:lock,rename:lock};
+  const key=id=>{const k=KEYS[id];return `<button class="k ${k[3]||''} ${held===id?'held':''}" id="k-${id}" data-a="${id}" aria-label="${k[1]}, ${k[2]}" ${off[id]?'disabled':''}><b>${ico(k[0],15,id==='move'?'fl':'')}</b><span>${k[1]} ${k[2]}</span></button>`}, rule='<i class="rule"></i>';
+  $('gut').className='gut '+(S.active===1?'flip':'');
+  $('gut').innerHTML=`<div class="gt"><div class="way" aria-label="${sel.length} items, ${fmt(b)}"><strong>${sel.length}</strong><small>${fmt(b)}</small>${ico('move',20,'fl')}</div>${key('compress')}${key('extract')}${rule}${key('view')}${key('edit')}</div>${key('copy')}<div class="gb">${key('move')}${key('new')}${key('trash')}${rule}${key('rename')}${key('compare')}</div>`}
+function press(id){const k=$('k-'+id);if(!k)return;k.classList.add('down');setTimeout(()=>k.classList.remove('down'),140)}
+
+const VERB={copy:['Copy','Copying','Copied','go'],move:['Move','Moving','Moved','mv'],trash:['Move to Trash','Moving to Trash','Moved to Trash','rm'],compress:['Compress','Compressing','Compressed','go'],extract:['Extract','Extracting','Extracted','go'],sync:['Sync','Syncing','Synced','go']};
+const ICON={copy:'copy',move:'move',trash:'trash',compress:'archive',extract:'unpack',sync:'compare'};
+function ibDraw(){const I=S.ib,tail=l=>`<span id="ibN"></span><span class="sp"></span><button class="b" data-a="ibcancel">Cancel <kbd>esc</kbd></button><button class="b pl" data-a="ibrun">${l} <kbd>↩</kbd></button>`;I.drawn=true;
+  $('bar').innerHTML=I.kind==='mp'?`${ico('check')}<b>${I.mode==='+'?'Mark':'Unmark'}</b><input id="ibIn" aria-label="Pattern" value="${h(I.q)}" spellcheck="false">`+tail('Apply'):
+  I.kind==='go'?`${ico('folder')}<b>Go to</b><input id="ibIn" aria-label="Path" style="width:340px" placeholder="~/projects/atlas/src" spellcheck="false">`+tail('Go'):
+  `${ico('search')}<b>Find</b><label>Name</label><input id="ibIn" aria-label="File name" placeholder="*.md" spellcheck="false"><label>Contains</label><input id="ibIn2" aria-label="File contents" spellcheck="false"><select id="ibWhere" aria-label="Search in"><option value="vol">This volume</option><option value="here">This folder</option><option value="all">All volumes</option></select>`+tail('Keep results');
+  ibUpdate();const f=$('ibIn');f.focus();f.select()}
+function ibUpdate(){const I=S.ib,v=$('ibIn').value,N=$('ibN');
+  if(I.kind==='mp'){I.q=v;I.re=glob(v);panel(S.active);const n=v?shown(A()).filter(i=>!i.dir&&I.re.test(full(i))).length:0;N.textContent=`${n} file${n===1?'':'s'} match${n===1?'es':''}`;gutter()}
+  if(I.kind==='go')N.textContent='';
+  if(I.kind==='find'){const t=A();t.items=findAll(v,$('ibIn2').value,$('ibWhere').value,I.prev);t.cur=sortItems(t.items.map(i=>({i})),t.sort)[0]?.i||null;t.top=0;t.name=v?`Find: ${v}`:'Find';panel(S.active);gutter();N.textContent=`${t.items.length} file${t.items.length===1?'':'s'}`}}
+function ibOpen(kind,o={}){S.view=false;S.ib={kind,q:'',...o,re:glob(o.q||'')};render()}
+function ibClose(){S.ib=null;render()}
+function ibCancel(){const I=S.ib;if(I.kind==='find'){const P=S.panels[S.active];P.tabs.pop();P.tab=I.prev}ibClose()}
+function ibRun(){const I=S.ib,t=A(),v=$('ibIn').value.trim();
+  if(I.kind==='mp'){if(v)shown(t).filter(i=>!i.dir&&I.re.test(full(i))).forEach(i=>I.mode==='+'?t.marked.add(i):t.marked.delete(i));return ibClose()}
+  if(I.kind==='go'){if(gotoPath(v))return ibClose();$('ibN').textContent='That folder does not exist.';return}
+  ibClose();say(`Results stay in this tab. Enter opens a file's folder, and Esc closes the tab.`)}
+function gotoPath(v){const want=v.replace(/\/$/,''),hit=S.panels.flatMap(P=>P.tabs).find(t=>!t.res&&pathStr(t)===want);if(!hit)return false;
+  nav(A(),t=>Object.assign(t,{crumbs:hit.crumbs,items:hit.items,cur:null,marked:new Set,top:0,ro:false,res:false,name:hit.crumbs.at(-1),stack:[]}));return true}
+function findAll(name,has,where,prev){const P=S.panels[S.active],tabs=where==='here'?[P.tabs[prev]]:S.panels.flatMap(x=>x.tabs).filter(t=>!t.res&&(where==='all'||t.crumbs[0]===P.tabs[prev].crumbs[0])),q=name.trim().toLowerCase();if(!q&&!has)return[];
+  const re=/[*?,]/.test(q)?glob(q):null,c=has.toLowerCase();
+  return tabs.flatMap(t=>t.items.filter(i=>(S.hidden||!isHid(i))&&(!q||(re?re.test(full(i)):full(i).toLowerCase().includes(q)))&&(!c||(TEXT[i.e]||'').toLowerCase().includes(c))).map(i=>({...i,where:pathStr(t)})))}
+function startFind(){if(S.mode!=='browse')return;const P=S.panels[S.active],t=tabOf('Find',['Find results'],'',[]);t.res=true;const prev=P.tab;t.back=prev;P.tabs.push(t);P.tab=P.tabs.length-1;ibOpen('find',{prev})}
+function closeRes(){const P=S.panels[S.active],b=A().back;P.tabs.splice(P.tab,1);P.tab=Math.min(b,P.tabs.length-1);render()}
+function markBy(mode){const c=A().cur;ibOpen('mp',{mode,q:c&&!c.dir&&c.e?'*.'+c.e:'*.*'})}
+function invert(){const t=A();shown(t).filter(i=>!i.dir).forEach(i=>t.marked.has(i)?t.marked.delete(i):t.marked.add(i));render()}
+function startIR(){press('rename');const t=A(),i=t.cur;if(!i||i.up)return say('Move the cursor to a file first.');if(t.ro||t.res)return say('Open the folder to rename this file.');S.ir={i,v:full(i)};render()}
+function finishIR(){const {i}=S.ir,t=A(),v=$('ir').value.trim();if(!v)return say('Enter a name.');if(/[/:]/.test(v))return say('Names cannot contain / or :.');if(t.items.some(x=>x!==i&&cmp(full(x),v)===0))return say(`${h(v)} already exists here. Choose another name.`);
+  S.undo=[{i,n:i.n,e:i.e}];const d=v.lastIndexOf('.');if(i.e&&v.endsWith('.'+i.e))i.n=v.slice(0,-i.e.length-1);else if(d>0){i.n=v.slice(0,d);i.e=v.slice(d+1)}else{i.n=v;i.e=''}S.ir=null;render();say(`${ico('check')} Renamed. Press ⌘Z to undo.`)}
+const abs=x=>x.replace(/^~/,'/Users/you');
+function copyPath(){const t=A(),list=selection().map(i=>abs(i.where||pathStr(t))+'/'+full(i)),text=(list.length?list:[abs(pathStr(t))]).join('\n');navigator.clipboard?.writeText(text).catch(()=>{});say(`${ico('check')} Copied ${list.length>1?list.length+' paths':h(text)}`)}
+function terminal(){const t=A();say(`Terminal opens at ${h(abs(t.res?t.cur?.where||'~':pathStr(t)))} in the real build.`)}
+function menuFor(x,y){const t=A(),i=t.cur,arc=i&&isArc(i),with_=a=>()=>say(`${h(full(i))} opens in ${a} in the real build.`);if(!i)return;
+  const many=t.marked.has(i)&&t.marked.size>1,one=[['Open',open,'file','↩'],0,'Open With',['TextEdit',with_('TextEdit'),'edit'],['Visual Studio Code',with_('Visual Studio Code'),'edit'],['Xcode',with_('Xcode'),'edit'],0,['View beside',viewer,'eye','F3']],
+    acts=[['Copy to other panel',()=>begin('copy'),'copy','F5'],['Move to other panel',()=>begin('move'),'move','F6'],many?['Multi-rename',startRename,'rename','⌘⇧R']:['Rename',startIR,'rename','⇧F6'],['Compress',()=>begin('compress'),'archive','⌘⇧P'],...(arc?[['Extract',()=>begin('extract'),'unpack','⌘⇧U']]:[]),['Copy path',copyPath,'copy','⌥⌘C']],
+    term=['Open Terminal here',terminal,'term','⌘⇧T'],trash=['Move to Trash',()=>begin('trash'),'trash','F8'];
+  const M=many?['This file',...one,0,`${t.marked.size} marked items`,...acts,trash,0,'This folder',term]:[...one,...acts,0,term,0,trash];
+  S.menu={M,i:0,acts:M.filter(m=>Array.isArray(m)),only:t.marked.has(i)?null:i};const el=$('menu');el.classList.add('on');drawMenu();el.style.left=Math.min(x,innerWidth-240)+'px';el.style.top=Math.min(y,innerHeight-el.offsetHeight-8)+'px'}
+function drawMenu(){const m=S.menu;let n=0;$('menu').innerHTML=m.M.map(x=>x===0?'<hr>':typeof x==='string'?`<small>${x}</small>`:(n++,`<button role="menuitem" class="${n-1===m.i?'on':''}" data-a="menurun" data-v="${n-1}">${ico(x[2])}${x[0]}${x[3]?`<kbd>${x[3]}</kbd>`:''}</button>`)).join('')}
+function closeMenu(){S.menu=null;$('menu').classList.remove('on')}
+function menuRun(i){const a=S.menu.acts[i],only=S.menu.only;closeMenu();S.only=only;a[1]();S.only=null}
+function cursorMenu(){const r=document.querySelector('.p.act .r.cur')?.getBoundingClientRect();if(r&&A().cur&&!A().cur.up)menuFor(r.left+40,r.bottom)}
+function arcBad(o){const a=o.items[0],d=tab(1-o.from);if(!a.n.trim())return 'Enter a name.';if(/[/:]/.test(a.n))return 'Names cannot contain / or :.';return d.items.some(x=>cmp(full(x),full(a))===0)?`${full(a)} already exists there.`:''}
+function arcCheck(){const m=arcBad(S.op);$('arcMsg').textContent=m;$('arcGo').disabled=!!m}
+function bar(){
+  const b=$('bar'),J=S.job,o=S.op; let html;
+  $('mini').textContent=J&&(o||S.ib||S.mode!=='browse')?`${VERB[J.op.kind][1]} ${Math.round(J.pct)}%`:'';
+  if(S.ib){if(!S.ib.drawn)ibDraw();return}
+  if(o&&o.kind==='compress'){const a=o.items[0],m=arcBad(o),n=o.sel.length;
+    html=`${ico('archive')}<b>Compress ${n} item${n===1?'':'s'} to ${h(tab(1-o.from).name)}</b><label>Name <kbd>N</kbd></label><input id="arcName" aria-label="Archive name" value="${h(a.n)}" spellcheck="false"><span class="seg" role="radiogroup" aria-label="Format">${[['zip','ZIP','Z'],['tar.gz','TAR.GZ','T']].map(([x,l,k])=>`<button role="radio" aria-checked="${a.e===x}" class="${a.e===x?'on':''}" data-a="fmt" data-v="${x}">${l}<kbd>${k}</kbd></button>`).join('')}</span><span id="arcMsg">${h(m)}</span><span class="sp"></span><button class="b" data-a="cancel">Cancel <kbd>esc</kbd></button><button class="b go" id="arcGo" data-a="run" ${m?'disabled':''}>Compress <kbd>↩</kbd></button>`}
+  else if(o){const [v,,,c]=VERB[o.kind],d=tab(1-o.from),n=o.items.length,conf=o.kind==='trash'?[]:o.items.filter(i=>d.items.some(x=>cmp(full(x),full(i))===0)),newer=conf.filter(i=>d.items.some(x=>cmp(full(x),full(i))===0&&x.t>i.t)).length;
+    const dest=o.kind==='trash'?'':` to ${h(d.name)}`,newN=n-conf.length,parts=o.kind==='trash'?'Stays in Trash until you empty it':`${newN} new`+(conf.length?` · ${o.conf==='replace'?`<span class="t-rm">${conf.length} replaced</span>`:o.conf==='skip'?conf.length+' skipped':conf.length+' kept beside the original'}`:'')+(newer?` · ${newer} newer in ${h(d.name)}`:'')+(o.dropped?` · ${o.dropped} already there`:'');
+    const go=o.conf==='skip'?newN:n,label=`${v} ${go} item${go===1?'':'s'}`;
+    html=`${ico(ICON[o.kind])}<b>${v}${dest}</b><span>${parts}</span><span class="sp"></span>`+
+    (conf.length?`<span class="seg" role="radiogroup" aria-label="If a file exists">${[['replace','Replace','R'],['skip','Skip','S'],['both','Keep both','K']].map(([x,l,k])=>`<button role="radio" aria-checked="${o.conf===x}" class="${o.conf===x?'on':''}" data-a="conf" data-v="${x}">${l}<kbd>${k}</kbd></button>`).join('')}</span>`:'')+
+    `<button class="b" data-a="cancel">Cancel <kbd>esc</kbd></button><button class="b ${c}" data-a="run" ${go?'':'disabled'}>${label} <kbd>↩</kbd></button>`}
+  else if(S.msg) html=`<span class="${S.msg.cls}">${S.msg.text}</span>`;
+  else if(S.mode==='rename'){const r=rnRows(),errs=r.filter(x=>x.err).length,ch=r.filter(x=>x.changed&&!x.err).length;
+    html=errs?`${ico('alert')}<b>${errs} name${errs===1?'':'s'} to fix</b><span>${h(r.find(x=>x.err).err)}</span>`:`${ico('rename')}<b>${ch?`${ch} of ${r.length} files change`:'No names change yet'}</b>`;
+    html+=`<span class="sp"></span><button class="b" data-a="cancel">Cancel <kbd>esc</kbd></button><button class="b pl" data-a="run" ${errs||!ch?'disabled':''}>${errs?'Rename':`Rename ${ch} file${ch===1?'':'s'}`} <kbd>↩</kbd></button>`}
+  else if(S.mode==='compare'&&!J){const c=cpStats();
+    html=`${ico('compare')}<b>${c.n?`${c.r} to Archive T7 · ${c.l} to dist`:'Nothing to sync'}</b>${c.d?`<span class="t-rm">${c.d} to Trash</span>`:''}${c.n?`<span>${fmt(c.b)} · ${c.s} skipped</span>`:''}<span class="sp"></span><span>Arrows set direction · Minus skips · X trashes</span><button class="b" data-a="cancel">Close <kbd>esc</kbd></button><button class="b ${c.d?'rm':'go'}" data-a="run" ${c.n?'':'disabled'}>Sync ${c.n} item${c.n===1?'':'s'} <kbd>↩</kbd></button>`}
+  else if(J){const [,ing,,c]=VERB[J.op.kind];
+    html=`${ico(ICON[J.op.kind])}<b>${ing} ${J.done+1} of ${J.total}</b><span>${h(J.left[0]?full(J.left[0].i):'')}</span><div class="prog ${c}"><i style="width:${J.pct}%"></i></div><span>${Math.round(J.pct)}% · ${Math.ceil(J.secs)} s left</span><button class="b" data-a="stop">Stop</button>`}
+  else html=`<span><kbd>Tab</kbd> switches panel</span><span><kbd>Space</kbd> marks</span><span>Type to find</span><span><kbd>⌘K</kbd> shows every command</span><span class="sp">Sample files. Nothing on disk is touched.</span>`;
+  b.innerHTML=html}
+
+function render(){
+  for(const v of ['browse','rename','compare']) $('v-'+v).classList.toggle('on',(S.mode==='op'?'browse':S.mode)===v);
+  if(S.mode==='rename') rnLists(); else if(S.mode==='compare') cpLists(); else {panel(0);panel(1);gutter()}
+  bar(); if(S.op) S.op.fresh=false}
+
+function move(d){const t=A(),rows=rowsOf(S.active).filter(real),i=Math.max(0,rows.findIndex(r=>r.i===(t.cur||UP)));t.cur=rows[Math.max(0,Math.min(rows.length-1,i+d))].i;render()}
+function open(){const t=A(),i=t.cur||UP;
+  if(t.res){if(!t.cur)return;const f=full(i);if(!gotoPath(i.where))return say('That folder is no longer open.');A().cur=A().items.find(x=>full(x)===f)||null;return render()}
+  if(i.up){if(!t.stack.length)return say('This is the top folder in the demo.');return nav(t,x=>Object.assign(x,x.stack.pop()))}
+  if(i.dir||isArc(i))return nav(t,x=>{x.stack.push({crumbs:x.crumbs,items:x.items,cur:i,marked:x.marked,top:x.top,ro:x.ro});Object.assign(x,{crumbs:[...x.crumbs,i.dir?i.n:full(i)],items:i.dir?[]:parse(ARC),cur:null,marked:new Set,top:0,ro:x.ro||!i.dir})})
+  say(`${h(full(i))} opens with its default app in the real build.`)}
+function up(){const t=A();t.cur=UP;open()}
+function begin(kind){press(kind);if(S.mode!=='browse')return;if(S.job)return say('Finish the running job first.');const t=A(),dst=tab(1-S.active);let sel=selection();
+  if(kind==='extract')sel=sel.filter(isArc);
+  if(!sel.length)return say(kind==='extract'?'Move the cursor to an archive, or mark some first.':'Move the cursor to a file, or mark some first.');
+  if(t.ro&&(kind==='move'||kind==='trash'))return say('Archives are read-only in v1. Copy or extract the files instead.');
+  if(t.res&&(kind==='move'||kind==='trash'))return say('Press Enter to open the folder first, then move or trash from there.');
+  if(dst.res&&kind!=='trash')return say('Switch the other panel away from the results first.');
+  if(dst.ro&&kind!=='trash')return say('v1 cannot add files to an archive. Compress to a new one instead.');
+  const there=pathStr(dst);let dropped=0;
+  if(kind==='copy'||kind==='move'){if(sel.some(i=>i.dir&&(there+'/').startsWith((i.where||pathStr(t))+'/'+full(i)+'/')))return say('A folder cannot go inside itself.');
+    const n=sel.length;sel=sel.filter(i=>(i.where||pathStr(t))!==there);dropped=n-sel.length;if(!sel.length)return say('Those files are already in that folder.')}
+  if(kind!=='trash'&&new Set(sel.map(i=>full(i).toLowerCase())).size<sel.length)return say('Marked files share a name. Handle them one at a time.');
+  S.view=false;
+  const now='31 Oct 08:12',sum=sel.reduce((s,i)=>s+(i.calc||i.b),0);let items=sel;
+  if(kind==='compress'){const a=mk(sel.length===1?sel[0].n:t.crumbs.at(-1).replace(/\.\w+$/,''),'zip',fmt(sum*.7||1e3),now);a.s='~'+a.s;items=[a]}
+  if(kind==='extract')items=sel.map(a=>mk(a.n,'','',now));
+  const newer=items.some(i=>dst.items.some(x=>cmp(full(x),full(i))===0&&x.t>i.t));
+  S.op={kind,from:S.active,sel,items,dropped,conf:kind==='extract'?'both':newer?'skip':'replace',fresh:true};S.mode='op';render()}
+function run(){const o=S.op,dst=tab(1-o.from),src=tab(o.from);if(o.kind==='compress'&&arcBad(o))return;
+  let list=o.items.map((land,x)=>({i:o.kind==='extract'?o.sel[x]:land,land,hit:o.kind==='trash'?null:dst.items.find(y=>cmp(full(y),full(land))===0)}));
+  if(o.conf==='skip') list=list.filter(x=>!x.hit);
+  S.op=null;S.mode='browse';
+  if(!list.length){render();return say('Nothing to do: every item was skipped.')}
+  startJob(o,list,x=>{if(o.kind!=='trash'){if(x.hit&&o.conf==='replace')dst.items.splice(dst.items.indexOf(x.hit),1);dst.items.push(o.conf==='both'&&x.hit?{...x.land,n:freeName(dst.items,x.land)}:{...x.land})}
+    if(o.kind==='move'||o.kind==='trash'){src.items.splice(src.items.indexOf(x.i),1);if(src.cur===x.i)src.cur=null}
+    if(o.kind==='compress')src.marked.clear();else src.marked.delete(x.i)})}
+function startJob(op,left,apply){const total=left.reduce((s,x)=>s+(x.i.b||2e5),0),dur=Math.min(7,1.5+left.length*.8);let doneB=0,cur=0;
+  S.job={op,left,apply,total:left.length,done:0,pct:0,secs:dur};render();
+  S.job.timer=setInterval(()=>{const J=S.job;cur+=total/(dur*10);const it=J.left[0];
+    if(it&&cur-doneB>=(it.i.b||2e5)){doneB+=it.i.b||2e5;J.apply(it);J.left.shift();J.done++;render()}
+    J.pct=Math.min(100,cur/total*100);J.secs=Math.max(0,dur*(1-J.pct/100));
+    if(!J.left.length){clearInterval(J.timer);const n=J.total;S.job=null;render();say(`${ico('check')} ${VERB[op.kind][2]} ${n} item${n===1?'':'s'}.`)}else bar()},100)}
+function stop(){const J=S.job;clearInterval(J.timer);S.job=null;render();say(`Stopped. ${J.done} of ${J.total} finished, and the partial file was removed.`)}
+
+// Multi-rename. Token set: [N] [N1-5] [E] [C] [YMD].
+function renameAll(files,o,others=[]){
+  const ymd=t=>{const d=new Date(t);return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`};
+  const out=files.map((f,idx)=>{const tok=m=>m.replace(/\[N(?:(\d+)(?:-(\d+))?)?\]|\[E\]|\[C\]|\[YMD\]/g,(x,a,b)=>x==='[E]'?f.e:x==='[C]'?String(o.start+idx*o.step).padStart(o.pad,'0'):x==='[YMD]'?ymd(f.t):a?f.n.slice(a-1,b||a):f.n);
+    let n=tok(o.name),e=tok(o.ext),err='';
+    if(o.find){try{n=n.replace(new RegExp(o.rx?o.find:o.find.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'g'),o.rx?o.rep:()=>o.rep)}catch{err='The search pattern is not valid.'}}
+    if(o.kase==='lower')n=n.toLowerCase();if(o.kase==='upper')n=n.toUpperCase();if(o.kase==='title')n=n.replace(/\b\w/g,c=>c.toUpperCase());
+    if(!err&&!n)err='A name is empty.'; if(!err&&/[/:]/.test(n+e))err='Names cannot contain / or :.';
+    return {f,n,e,err,changed:n!==f.n||e!==f.e}});
+  const key=x=>(x.e?x.n+'.'+x.e:x.n).toLowerCase(), seen={};
+  out.forEach(x=>seen[key(x)]=(seen[key(x)]||0)+1);
+  out.forEach(x=>{if(x.err)return;if(seen[key(x)]>1)x.err='Two files would get the same name. Add [C] to number them.';else if(others.some(y=>full(y).toLowerCase()===key(x)))x.err='That name is already in this folder.'});
+  return out}
+{const f=[mk('a','txt','1 KB','28 Oct 16:42'),mk('b','txt','1 KB','28 Oct 16:42')],o={name:'[N]',ext:'[E]',find:'',rep:'',rx:false,kase:'keep',start:1,step:1,pad:2};
+ console.assert(renameAll(f,{...o,name:'x[C]'})[1].n==='x02','counter');
+ console.assert(renameAll(f,{...o,name:'[N]-[YMD]'})[0].n==='a-20261028','date');
+ console.assert(renameAll([mk('a','txt','1 KB','28 Oct 23:59')],{...o,name:'[YMD]'})[0].n==='20261028','local date');
+ console.assert(renameAll([mk('a','txt','1 KB','28 Oct 00:01')],{...o,name:'[YMD]'})[0].n==='20261028','local date, early');
+ console.assert(renameAll(f,{...o,find:'a',rep:'$&b'})[0].n==='$&b','literal replace');
+ console.assert(renameAll(f,{...o,name:'same'})[0].err,'collision');
+ console.assert(renameAll(f,{...o,name:'a/b'})[0].err,'separator');
+ console.assert(renameAll(f,{...o,find:'(',rx:true})[0].err,'bad regex');
+ console.assert(renameAll(f,o,[mk('a','txt','1 KB','28 Oct 16:42')])[0].err,'existing name')}
+const rnRows=()=>{const t=A(),sel=S.rn.files;return renameAll(sel,S.rn,t.items.filter(i=>!sel.includes(i)))};
+function startRename(){press('rename');if(S.mode!=='browse')return;if(A().ro||A().res)return say('Open the folder to rename these files.');const files=selection().filter(i=>!i.dir);if(!files.length)return say('Mark the files to rename first.');
+  S.view=false;S.msg=null;S.rn={files,name:'[N]-[YMD]',ext:'[E]',find:'',rep:'',rx:false,kase:'keep',start:1,step:1,pad:2,top:0};S.mode='rename';
+  $('rnOpts').innerHTML=`<label>Name <input type="text" class="mono" id="rName" data-o="name" value="[N]-[YMD]" size="20" spellcheck="false"></label><label>Ext <input type="text" class="mono" data-o="ext" value="[E]" size="7" spellcheck="false"></label>
+  <label>Find <input type="text" data-o="find" size="12" spellcheck="false"></label><label>Replace <input type="text" data-o="rep" size="12" spellcheck="false"></label><label><input type="checkbox" data-o="rx"> Regex</label>
+  <label>Case <select data-o="kase"><option value="keep">Keep</option><option value="lower">lower</option><option value="upper">UPPER</option><option value="title">Title</option></select></label>
+  <label>Counter <input type="number" data-o="start" value="1" min="0" style="width:58px"></label><label>Digits <input type="number" data-o="pad" value="2" min="1" max="6" style="width:48px"></label>
+  <span class="sp hint">[N] name · [E] ext · [C] counter · [YMD] date</span>`;
+  $('rnFrom').textContent=A().name;render();$('rName').focus()}
+function rnLists(){const rows=rnRows(),n=Math.max(1,Math.floor(($('rnL').parentElement.clientHeight-50)/20)),e=rows.findIndex(x=>x.err),R=S.rn;
+  if(e>=0&&(e<R.top||e>=R.top+n))R.top=e;R.top=Math.max(0,Math.min(R.top,Math.max(0,rows.length-n)));
+  const vis=rows.slice(R.top,R.top+n);$('rnCount').textContent=rows.filter(x=>x.changed&&!x.err).length+' change'+(rows.length>n?` · showing ${R.top+1} to ${R.top+vis.length} of ${rows.length}`:'');
+  $('rnL').innerHTML=vis.map(x=>`<div class="r"><div class="name">${ico('file')}<span>${h(x.f.n)}</span></div><span>${h(x.f.e)}</span><span>${x.f.s}</span><span>${x.f.d}</span></div>`).join('');
+  $('rnR').innerHTML=vis.map(x=>`<div class="r ${x.err?'err':x.changed?'mk':'k-skip'}"><div class="name">${ico(x.err?'alert':'file')}<span>${h(x.n)}</span></div><span>${h(x.e)}</span><span>${x.f.s}</span><span>${x.f.d}</span></div>`).join('');
+  $('rnM').innerHTML=vis.map(x=>`<div class="lane"><i class="m ${x.err||x.changed?'':'off'}">${ico(x.err?'alert':x.changed?'move':'equal',10)}</i></div>`).join('')}
+function applyRename(){const rows=rnRows();if(rows.some(x=>x.err)||!rows.some(x=>x.changed))return;S.undo=rows.map(x=>({i:x.f,n:x.f.n,e:x.f.e}));rows.forEach(x=>{x.f.n=x.n;x.f.e=x.e});A().marked.clear();closeMode();say(`${ico('check')} Renamed ${rows.filter(x=>x.changed).length} files. Press ⌘Z to undo.`)}
+function closeMode(){S.mode='browse';S.op=null;render()}
+
+// Compare and sync.
+const CPDATA=`docs/|0
+architecture|md|14.2 KB|26 Oct 11:20|14.2 KB|26 Oct 11:20|1
+changelog|md|31.7 KB|28 Oct 15:58|30.9 KB|14 Oct 11:40|1
+getting-started|md|9.4 KB|12 Oct 10:04|9.4 KB|12 Oct 10:04|1
+migration-1.8|md|6.1 KB|28 Oct 14:12|||1
+old-roadmap|md|||4.2 KB|02 Jul 18:20|1
+sync-guide|md|12.3 KB|14 Oct 09:30|12.6 KB|22 Oct 08:51|1
+images/|1
+hero|png|1.2 MB|03 Sep 14:37|1.2 MB|03 Sep 14:37|2
+logo|svg|6.4 KB|03 Sep 14:37|6.4 KB|03 Sep 14:37|2|diff
+panels|png|842 KB|27 Oct 17:05|801 KB|19 Aug 10:06|2
+screens-1.7|png|||2.8 MB|19 Aug 10:06|2
+sync-flow|png|318 KB|03 Sep 14:37|322 KB|22 Oct 08:51|2
+reference/|1
+api|md|88.1 KB|28 Oct 15:40|84.6 KB|14 Oct 11:40|2
+cli|md|17.5 KB|14 Oct 11:40|17.5 KB|14 Oct 11:40|2
+config|md|22.8 KB|14 Oct 11:40|22.8 KB|14 Oct 11:40|2
+plugins|md|40.3 KB|27 Oct 09:15|||2
+release-process|md|7.7 KB|02 Sep 13:47|7.7 KB|02 Sep 13:47|1
+security|md|5.2 KB|01 Oct 17:30|5.2 KB|01 Oct 17:30|1
+style-guide|md|3.9 KB|12 Oct 10:21|3.9 KB|12 Oct 10:21|1
+troubleshooting|md|16.4 KB|21 Oct 11:03|16.4 KB|21 Oct 11:03|1
+web-export|zip|64.2 MB|28 Oct 16:42|61.0 MB|14 Oct 12:25|1`;
+function cpBuild(){return CPDATA.split('\n').map(l=>{const p=l.split('|');if(p.length===2)return{n:p[0],dep:+p[1],dir:true};
+  return{n:p[0],e:p[1],l:p[2]?mk(p[0],p[1],p[2],p[3]):null,r:p[4]?mk(p[0],p[1],p[4],p[5]):null,dep:+p[6],diff:p[7]==='diff'}})}
+function cpAuto(c){c.rows.forEach(r=>{if(r.dir)return;const {l,r:x}=r;r.act=!l?'l':!x?'r':c.by==='size'?(l.b===x.b?'=':l.t>=x.t?'r':'l'):c.by==='content'&&r.diff?'r':l.t===x.t?'=':l.t>x.t?'r':'l'})}
+function startCompare(){press('compare');if(S.mode!=='browse')return;S.view=false;S.msg=null;const c=S.cp={by:'date',only:false,del:false,cur:1,hit:false,rows:cpBuild()};cpAuto(c);S.mode='compare';cpOpts();render()}
+const cpVis=()=>{const c=S.cp;return c.rows.filter(r=>r.dir||!c.only||r.act!=='=')};
+function cpOpts(){const c=S.cp;$('cpOpts').innerHTML=`Compare by <span class="seg" role="radiogroup" aria-label="Compare by">${[['date','Name and date','1'],['size','Size','2'],['content','Content','3']].map(([v,l,k])=>`<button role="radio" aria-checked="${c.by===v}" class="${c.by===v?'on':''}" data-a="by" data-v="${v}">${l}<kbd>${k}</kbd></button>`).join('')}</span>
+  <span class="seg">${[[false,'All files'],[true,'Differences']].map(([v,l])=>`<button aria-pressed="${c.only===v}" class="${c.only===v?'on':''}" data-a="only" data-v="${v}">${l}<kbd>D</kbd></button>`).join('').replace('All files<kbd>D</kbd>','All files')}</span>
+  <label class="sp"><input type="checkbox" id="cpDel" ${c.del?'checked':''}> Allow deletions <kbd>A</kbd></label>`}
+function cpStats(){const rows=S.cp.rows.filter(r=>!r.dir),o={r:0,l:0,d:0,s:0,b:0};rows.forEach(x=>{if(x.act==='r'){o.r++;o.b+=x.l.b}else if(x.act==='l'){o.l++;o.b+=x.r.b}else if(x.act==='x')o.d++;else if(x.act==='-')o.s++});o.n=o.r+o.l+o.d;return o}
+function cpLists(){const c=S.cp,rows=cpVis();c.cur=Math.min(c.cur,rows.length-1);const n=Math.max(1,Math.floor(($('cpL').parentElement.clientHeight-50)/20));c.top=Math.max(0,Math.min(c.top||0,c.cur),c.cur-n+1);
+  const vis=rows.slice(c.top,c.top+n),side=(r,s,x)=>{const f=r[s],cur=rows.indexOf(r)===c.cur?' cur':'',dim=r.act==='='?' k-skip':'';
+    if(r.dir)return`<div class="r dir${cur}" data-a="cprow" data-v="${rows.indexOf(r)}"><div class="name" style="padding-left:${r.dep*14}px">${ico('folder')}<span>${h(r.n.slice(0,-1))}</span></div><span></span><span></span><span></span></div>`;
+    const del=r.act==='x'&&f?' k-rm':'',recv=(r.act==='r'&&s==='r'||r.act==='l'&&s==='l');
+    return`<div class="r${cur}${dim}${del}" data-a="cprow" data-v="${rows.indexOf(r)}"><div class="name" style="padding-left:${r.dep*14}px">${f?ico('file'):''}<span>${f?h(full(f)):''}</span>${r.diff&&c.by==='content'&&f?'<small>contents differ</small>':''}</div><span></span><span>${f?f.s:''}</span><span>${f?f.d:recv?'missing':''}</span></div>`};
+  $('cpL').innerHTML=vis.map(r=>side(r,'l')).join('');$('cpR').innerHTML=vis.map(r=>side(r,'r')).join('');
+  $('cpM').innerHTML=vis.map(r=>{const i=rows.indexOf(r),a=r.act,ic=a==='r'?['go','move','']:a==='l'?['go','move','fl']:a==='x'?['rm','trash','']:a==='-'?['off','dash','']:a==='='?['off','equal','']:0;
+    return`<div class="lane${i===c.cur?' cur':''}" data-a="cplane" data-v="${i}">${ic?`<i class="m ${ic[0]}${i===c.cur&&c.hit?' hit':''}" title="${{r:'Copy to Archive T7',l:'Copy to dist',x:'Move to Trash',['-']:'Skip',['=']:'Identical'}[a]}">${ico(ic[1],10,ic[2])}</i>`:''}</div>`}).join('');
+  bar()}
+function cpSet(a){const c=S.cp,r=cpVis()[c.cur];if(!r||r.dir)return;
+  if(a==='x'&&!c.del)return say('Press A to allow deletions first. Nothing is deleted by default.');
+  if(a==='x'&&r.l&&r.r)return say('X only trashes a file that exists on one side. Use the arrows to replace one copy.');
+  if(a==='r'&&!r.l||a==='l'&&!r.r)return say('That side has no file to copy.');
+  S.msg=null;r.act=r.act===a?(r.l&&r.r&&r.l.t===r.r.t?'=':'-'):a;c.hit=true;cpLists();c.hit=false}
+function cpAllow(on){const c=S.cp;c.del=on;S.msg=null;if(!on)c.rows.forEach(r=>{if(r.act==='x')r.act='-'});cpOpts();cpLists()}
+function cpOnly(on){S.cp.only=on;S.cp.cur=1;cpOpts();cpLists()}
+function runSync(){const c=S.cp,list=c.rows.filter(r=>!r.dir&&'rlx'.includes(r.act||'='));if(!list.length)return;
+  startJob({kind:'sync',from:9},list.map(r=>({i:r.l&&r.act!=='l'?r.l:r.r||r.l,row:r})),x=>{const r=x.row;if(r.act==='r')r.r=r.l;else if(r.act==='l')r.l=r.r;else{r.l=r.r=null}r.act='=';r.diff=false;if(!r.l)c.rows.splice(c.rows.indexOf(r),1)})}
+
+const CMDS=[['View beside','F3 or ⌘Y','eye',()=>viewer()],['Edit','F4 or ⌘E','edit',()=>edit()],['Copy to other panel','F5 or ⌘⇧C','copy',()=>begin('copy')],['Move to other panel','F6 or ⌘⇧M','move',()=>begin('move')],['New folder','F7 or ⌘⇧N','plus',()=>newFolder()],['Move to Trash','F8 or ⌘⌫','trash',()=>begin('trash')],['Multi-rename','⌘⇧R','rename',()=>startRename()],['Undo rename','⌘Z','rename',()=>undo()],['Rename this file','⇧F6 or ⌥⌘R','rename',()=>startIR()],['Show actions for this file','⇧F10 or ⌥⌘M','file',()=>cursorMenu()],['Find files','⌘F','search',()=>startFind()],['Mark by pattern','+','check',()=>markBy('+')],['Unmark by pattern','-','check',()=>markBy('-')],['Invert marks','*','check',()=>invert()],['Back','⌘[','up',()=>step('hist','fwd','No earlier folder.')],['Forward','⌘]','up',()=>step('fwd','hist','No later folder.')],['Go to path','⌘⇧G','folder',()=>ibOpen('go')],['Open Terminal here','⌘⇧T','term',()=>terminal()],['Copy path','⌥⌘C','copy',()=>copyPath()],['Compare and sync','⌘⇧D','compare',()=>startCompare()],['Compress to other panel','⌘⇧P','archive',()=>begin('compress')],['Extract to other panel','⌘⇧U','unpack',()=>begin('extract')],['Show or hide hidden files','⌘⇧.','eye',()=>toggleHidden()],['Mark all','⌘A','check',()=>markAll()],['Next tab','⌘⇧]','folder',()=>nextTab(1)],['Previous tab','⌘⇧[','folder',()=>nextTab(-1)],['Sort by name','⌃⌘1','up',()=>sortBy('n')],['Sort by extension','⌃⌘2','up',()=>sortBy('e')],['Sort by size','⌃⌘3','up',()=>sortBy('s')],['Sort by modified','⌃⌘4','up',()=>sortBy('d')],['Go to command line','⌘L','search',()=>$('cl').focus()],['Switch light or dark','⌘⇧L','eye',()=>theme()]];
+function palette(on){S.pal=on?{q:'',i:0}:null;$('pal').classList.toggle('on',on);if(on){$('palIn').value='';palList();$('palIn').focus()}}
+const palHits=()=>CMDS.filter(c=>(S.mode==='browse'&&!S.ib||c[0].startsWith('Switch'))&&c[0].toLowerCase().includes(S.pal.q));
+function palList(){const l=palHits();$('palList').innerHTML=l.length?l.map((c,i)=>`<button class="${i===S.pal.i?'on':''}" data-a="palrun" data-v="${i}">${ico(c[2])}${c[0]}<kbd>${c[1]}</kbd></button>`).join(''):'<div class="empty">No command matches.</div>';$('palList').querySelector('.on')?.scrollIntoView({block:'nearest'})}
+function palRun(i){const c=palHits()[i];palette(false);if(c)c[3]()}
+function viewer(){press('view');if(S.mode!=='browse')return;S.view=!S.view;render()}
+function closeView(){S.view=false;render()}
+function edit(){press('edit');const i=A().cur;i&&!i.dir?say(`${h(full(i))} opens in your default editor in the real build.`):say('Move the cursor to a file to edit it.')}
+function newFolder(){press('new');if(A().ro||A().res)return say('Open a folder first.');S.nf='New folder';render()}
+function finishFolder(){const t=A(),v=$('nf').value.trim();if(!v)return say('Enter a folder name.');if(/[/:]/.test(v))return say('Names cannot contain / or :.');if(t.items.some(i=>cmp(full(i),v)===0))return say(`${h(v)} already exists here. Choose another name.`);
+  const i=mk(v,'','','31 Oct 08:12');t.items.push(i);t.cur=i;S.nf=null;render()}
+function markAll(){const t=A();shown(t).forEach(i=>t.marked.add(i));render()}
+function theme(){const r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light';render()}
+function toggleHidden(){S.hidden=!S.hidden;if(!S.hidden)S.panels.forEach(P=>P.tabs.forEach(t=>{[...t.marked].filter(isHid).forEach(i=>t.marked.delete(i));if(t.cur&&isHid(t.cur))t.cur=null}));render();say(S.hidden?'Showing hidden files.':'Hiding hidden files.')}
+function nextTab(d){const P=S.panels[S.active];P.tab=(P.tab+d+P.tabs.length)%P.tabs.length;render()}
+function sortBy(k){const t=A();t.sort=t.sort.k===k?{k,d:-t.sort.d}:{k,d:1};render()}
+function undo(){if(!S.undo)return say('Nothing to undo.');S.undo.forEach(u=>{u.i.n=u.n;u.i.e=u.e});S.undo=null;render();say('Rename undone.')}
+function mark(){const t=A(),i=t.cur;if(!i||i.up)return move(1);if(i.dir&&!i.calc)i.calc=[...i.n].reduce((s,c)=>s+c.charCodeAt(0)*88421,0);t.marked.has(i)?t.marked.delete(i):t.marked.add(i);move(1)}
+function find(){const t=A(),q=S.qs,hit=sortItems(shown(t).map(i=>({i})),t.sort).find(r=>full(r.i).toLowerCase().includes(q));if(hit)t.cur=hit.i;render()}
+
+const ACT={back:d=>{S.active=+d.p;step('hist','fwd','No earlier folder.')},forward:d=>{S.active=+d.p;step('fwd','hist','No later folder.')},ibrun:()=>ibRun(),ibcancel:()=>ibCancel(),menurun:d=>menuRun(+d.v),palette:()=>palette(true),view:viewer,edit,copy:()=>begin('copy'),move:()=>begin('move'),new:newFolder,trash:()=>begin('trash'),compress:()=>begin('compress'),extract:()=>begin('extract'),rename:startRename,compare:startCompare,cancel:()=>closeMode(),closeview:closeView,stop,
+  fmt:d=>{S.op.items[0].e=d.v;render()},
+  run:()=>S.mode==='rename'?applyRename():S.mode==='compare'?runSync():run(),
+  conf:d=>{S.op.conf=d.v;render()},tab:d=>{S.panels[d.p].tab=+d.v;S.active=+d.p;render()},by:d=>{S.cp.by=d.v;cpAuto(S.cp);cpOpts();cpLists()},only:d=>cpOnly(d.v==='true'),
+  sort:d=>{S.active=+d.p;sortBy(d.v)},palrun:d=>palRun(+d.v),cprow:d=>{S.cp.cur=+d.v;cpLists()},
+  cplane:d=>{S.cp.cur=+d.v;const r=cpVis()[+d.v];if(r&&!r.dir)cpSet(r.act==='r'&&r.r?'l':r.l?'r':'l')}};
+document.addEventListener('click',e=>{if(S.menu&&!e.target.closest('#menu'))closeMenu();if(S.ib&&!e.target.closest('#bar'))return;const a=e.target.closest('[data-a]');if(a&&a.dataset.a==='row')return rowClick(a,e);if(a&&ACT[a.dataset.a]){ACT[a.dataset.a](a.dataset);if(a.tagName==='BUTTON')a.blur?.()}});
+function rowClick(a,e){const p=+a.dataset.p,t=tab(p);if(S.mode!=='browse')return;S.active=p;const r=rowsOf(p)[+a.dataset.i];if(!r||!real(r))return;t.cur=r.i;if(e.metaKey&&!r.i.up)t.marked.has(r.i)?t.marked.delete(r.i):t.marked.add(r.i);render()}
+document.addEventListener('contextmenu',e=>{const a=e.target.closest('[data-a=row]');if(!a||S.mode!=='browse'||S.ib)return;e.preventDefault();rowClick(a,{});if(A().cur&&!A().cur.up)menuFor(e.clientX,e.clientY)});
+document.addEventListener('dblclick',e=>{const a=e.target.closest('[data-a=row]');if(a&&S.mode==='browse'&&!S.ib)open()});
+document.addEventListener('wheel',e=>{if(S.mode==='rename'&&e.target.closest('#v-rename')){S.rn.top+=Math.sign(e.deltaY)*3;return rnLists()}if(S.mode==='compare'&&e.target.closest('#v-compare')){S.cp.cur=Math.max(0,Math.min(cpVis().length-1,S.cp.cur+Math.sign(e.deltaY)));return cpLists()}const l=e.target.closest('.list');if(!l||!/^list/.test(l.id))return;const t=tab(+l.id.slice(4)),n=Math.floor(l.clientHeight/20),m=rowsOf(+l.id.slice(4)).length-n;t.top=Math.max(0,Math.min(m,t.top+Math.sign(e.deltaY)*3));const r=rowsOf(+l.id.slice(4)).filter(real);const i=r.findIndex(x=>x.i===t.cur);if(i<t.top)t.cur=r[t.top]?.i;if(i>=t.top+n)t.cur=r[t.top+n-1]?.i;render()},{passive:true});
+document.addEventListener('input',e=>{const o=e.target.dataset.o;if(o&&S.rn){S.rn[o]=e.target.type==='checkbox'?e.target.checked:e.target.type==='number'?+e.target.value:e.target.value;rnLists();bar()}else if(e.target.id==='palIn'){S.pal.q=e.target.value.toLowerCase();S.pal.i=0;palList()}else if(e.target.id==='arcName'){S.op.items[0].n=e.target.value;panel(1-S.op.from);arcCheck()}else if(e.target.id==='ibIn'||e.target.id==='ibIn2'){ibUpdate()}else if(e.target.id==='ir'){S.ir.v=e.target.value}});
+document.addEventListener('change',e=>{if(e.target.id==='cpDel'){cpAllow(e.target.checked)}else if(e.target.dataset.o==='kase'&&S.rn){S.rn.kase=e.target.value;rnLists();bar()}});
+addEventListener('resize',render);
+document.addEventListener('change',e=>{if(e.target.id==='ibWhere')ibUpdate()});
+
+addEventListener('keydown',e=>{
+  const k=e.key,c=e.metaKey,sh=e.shiftKey,lk=k.toLowerCase(),stop=()=>e.preventDefault(),inField=e.target.matches('input,select');
+  if(c&&lk==='k'){stop();return palette(!S.pal)}
+  if(c&&sh&&lk==='l'){stop();return theme()}
+  if(S.menu){const m=S.menu,n=m.acts.length;if(k==='Escape'){stop();closeMenu()}else if(k==='ArrowDown'||k==='ArrowUp'){stop();m.i=(m.i+(k==='ArrowDown'?1:n-1))%n;drawMenu()}else if(k==='Enter'){stop();menuRun(m.i)}return}
+  if(S.pal){if(k==='Escape')palette(false);else if(k==='ArrowDown'||k==='ArrowUp'){stop();const n=palHits().length;if(n){S.pal.i=(S.pal.i+(k==='ArrowDown'?1:n-1))%n;palList()}}else if(k==='Enter')palRun(S.pal.i);return}
+  if(S.ib){if(k==='Enter'){stop();ibRun()}else if(k==='Escape'){stop();ibCancel()}return}
+  if(e.target.id==='ir'){if(k==='Enter'){stop();finishIR()}else if(k==='Escape'){S.ir=null;render()}return}
+  if(e.target.id==='arcName'){if(k==='Enter'){stop();run()}else if(k==='Escape'){stop();e.target.blur()}return}
+  if(e.target.id==='nf'){if(k==='Enter'){stop();finishFolder()}else if(k==='Escape'){S.nf=null;render()}return}
+  if(e.target.id==='cl'){if(k==='Enter'&&e.target.value){say(`Would run in this folder: ${h(e.target.value)}`);e.target.value=''}if(k==='Escape'||k==='Enter')e.target.blur();return}
+  if(c&&lk==='l'){stop();return $('cl').focus()}
+  if(S.mode==='rename'){if(k==='Escape'){stop();closeMode()}else if(k==='Enter'){stop();applyRename()}else if(k==='PageDown'||k==='PageUp'){stop();S.rn.top+=(k==='PageDown'?1:-1)*20;rnLists()}return}
+  if(S.mode==='op'){if(k==='Escape')closeMode();else if(k==='Enter'){stop();run()}else if(!c&&S.op.kind==='compress'){if(lk==='z'||lk==='t'){S.op.items[0].e=lk==='z'?'zip':'tar.gz';render()}else if(lk==='n'){stop();$('arcName').focus();$('arcName').select()}}else if(!c&&'rsk'.includes(lk)&&S.op.kind!=='trash'){S.op.conf={r:'replace',s:'skip',k:'both'}[lk];render()}return}
+  if(inField&&k!=='Escape'&&S.mode==='compare'&&k!=='Enter')return;
+  if(S.mode==='compare'){const cp=S.cp;
+    if(k==='Escape'&&!S.job)closeMode();else if(k==='Enter'){stop();if(!S.job)runSync()}else if(k==='ArrowDown'||k==='ArrowUp'){stop();cp.cur=Math.max(0,Math.min(cpVis().length-1,cp.cur+(k==='ArrowDown'?1:-1)));cpLists()}
+    else if(k==='ArrowRight'){stop();cpSet('r')}else if(k==='ArrowLeft'){stop();cpSet('l')}else if(k==='-')cpSet('-');else if(lk==='x')cpSet('x');else if(lk==='d')cpOnly(!cp.only);else if(lk==='a')cpAllow(!cp.del);else if('123'.includes(k)){cp.by=['date','size','content'][k-1];cpAuto(cp);cpOpts();cpLists()}
+    return}
+  if(sh&&k==='F10'){stop();return cursorMenu()}
+  if(sh&&k==='F6'){stop();return startIR()}
+  if(k.startsWith('F')&&k.length<=3){const f={F2:startIR,F3:viewer,F4:edit,F5:()=>begin('copy'),F6:()=>begin('move'),F7:newFolder,F8:()=>begin('trash')}[k];if(f){stop();f()}return}
+  if(c){const m={y:viewer,e:edit,a:markAll,z:undo,f:startFind}[lk];
+    if(e.altKey&&e.code==='KeyC'){stop();return copyPath()}if(e.altKey&&e.code==='KeyR'){stop();return startIR()}if(e.altKey&&e.code==='KeyM'){stop();return cursorMenu()}if(!sh&&e.code==='BracketLeft'){stop();return step('hist','fwd','No earlier folder.')}if(!sh&&e.code==='BracketRight'){stop();return step('fwd','hist','No later folder.')}if(sh&&lk==='g'){stop();return ibOpen('go')}if(sh&&lk==='t'){stop();return terminal()}
+    if(sh&&e.code==='Period'){stop();return toggleHidden()}if(sh&&e.code==='BracketRight'){stop();return nextTab(1)}if(sh&&e.code==='BracketLeft'){stop();return nextTab(-1)}if(sh&&lk==='p'){stop();return begin('compress')}if(sh&&lk==='u'){stop();return begin('extract')}if(e.ctrlKey&&/^Digit[1-4]$/.test(e.code)){stop();return sortBy('nesd'[e.code.slice(5)-1])}
+    if(sh&&lk==='c'){stop();return begin('copy')}if(sh&&lk==='m'){stop();return begin('move')}if(sh&&lk==='n'){stop();return newFolder()}if(sh&&lk==='r'){stop();return startRename()}if(sh&&lk==='d'){stop();return startCompare()}
+    if(k==='Backspace'){stop();return begin('trash')}if(m&&!sh){stop();return m()}return}
+  switch(k){
+    case'Tab':stop();S.active=1-S.active;S.qs='';return render();
+    case'ArrowDown':stop();return move(1);case'ArrowUp':stop();return move(-1);
+    case'PageDown':stop();return move(20);case'PageUp':stop();return move(-20);case'Home':stop();return move(-1e4);case'End':stop();return move(1e4);
+    case'Enter':stop();S.qs='';return open();
+    case'Backspace':stop();if(S.qs){S.qs=S.qs.slice(0,-1);return S.qs?find():render()}return up();
+    case' ':stop();S.qs='';return mark();
+    case'Escape':if(S.qs){S.qs='';return render()}if(S.view)return closeView();if(S.job)return;if(A().res&&!A().marked.size)return closeRes();A().marked.clear();return render()}
+  if(!S.qs&&!e.ctrlKey&&!e.altKey){if(k==='+'||k==='='){stop();return markBy('+')}if(k==='-'){stop();return markBy('-')}if(k==='*'){stop();return invert()}}
+  if(k.length===1&&!e.ctrlKey&&!e.altKey){S.qs+=k.toLowerCase();find()}
+});
+document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme:light)').matches?'light':'dark';
+render();
+</script>
+</body>
+</html>
