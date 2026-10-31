@@ -75,7 +75,9 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | Invert marks | * |
 | Mark all | ⌘A |
 | Open | Return |
-| Up a folder | Backspace |
+| Up a folder | Backspace or ⌘↑ |
+| Open a package as a folder | ⌘↓ |
+| Refresh | ⌘R |
 | Back / forward | ⌘[ / ⌘] |
 | Go to path | ⌘⇧G |
 | View beside | F3 or ⌘Y |
@@ -144,17 +146,17 @@ Create the empty project everything else builds on.
 
 A read-only file browser you can drive without the mouse.
 
-- [ ] `FileEntry`, `FileSource` and `LocalSource`
-- [ ] `NSTableView` panels with the shared column grid and whole-row sizing
-- [ ] Natural sorting, folders first, with case and Unicode handling
-- [ ] Cursor, Tab between panels, keyboard navigation
-- [ ] Back, forward, up, and go to path
-- [ ] Tabs with new, close, next and previous
-- [ ] Clickable path bar, plus a volumes and favorites menu with mount notifications
-- [ ] Live refresh and manual refresh
-- [ ] Hidden files toggle
-- [ ] Permission errors that explain Full Disk Access and link to it
-- [ ] `.app` and other packages: Return launches, a separate shortcut opens as a folder
+- [x] `FileEntry`, `FileSource` and `LocalSource`
+- [x] `NSTableView` panels with the shared column grid and whole-row sizing
+- [x] Natural sorting, folders first, with case and Unicode handling
+- [x] Cursor, Tab between panels, keyboard navigation
+- [x] Back, forward, up, and go to path
+- [x] Tabs with new, close, next and previous
+- [x] Clickable path bar, plus a volumes and favorites menu with mount notifications
+- [x] Live refresh and manual refresh
+- [x] Hidden files toggle
+- [x] Permission errors that explain Full Disk Access and link to it
+- [x] `.app` and other packages: Return launches, a separate shortcut opens as a folder
 
 **Exit:** you can navigate for a day without the mouse. A 100k-file folder opens and scrolls without visible stutter.
 
@@ -269,13 +271,12 @@ Start with the spike, because the rest depends on its answer.
 
 ## Open questions
 
-Decided in M0: the domed keys are a SwiftUI `ButtonStyle` built from a radial gradient and shadows, and macOS 26 stays the minimum.
+Decided in M0: the domed keys are a SwiftUI `ButtonStyle` built from a radial gradient and shadows, and macOS 26 stays the minimum. Decided in M1: ⌘↓ opens a package as a folder.
 
 | Question | Decide by |
 |---|---|
 | Does the system `libarchive` cover 7z and RAR, and is linking it safe? | Start of M6 |
 | How should password-protected archives behave? | M6 |
-| Which shortcut opens a package as a folder? | M1 |
 | Should New, Compress and Extract keys be green, since green means copy or create? They are neutral in the prototype. | M2 |
 | Should the run button repeat the count ("Copy 6 items"), given that each fact appears once? | M3 |
 
