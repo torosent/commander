@@ -21,10 +21,13 @@ public enum FolderChange: Sendable {
 public struct Listing: Sendable {
     public var entries: [FileEntry]
     public var freeSpace: Int64?
+    /// Something the listing's reader should be told about it.
+    public var notice: String?
 
-    public init(entries: [FileEntry], freeSpace: Int64?) {
+    public init(entries: [FileEntry], freeSpace: Int64?, notice: String? = nil) {
         self.entries = entries
         self.freeSpace = freeSpace
+        self.notice = notice
     }
 }
 

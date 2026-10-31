@@ -1,0 +1,5 @@
+module CArchive [system] {
+    header "commander_archive.h"
+    link "archive"
+    export *
+}

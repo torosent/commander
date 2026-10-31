@@ -97,7 +97,7 @@ struct FileTable: NSViewRepresentable {
             table.onMenu = { [weak table] row in table.flatMap { view.menu(row: row, in: $0) } }
             table.dragURLs = { row in view.dragURLs(row: row) }
             table.quickLookURL = { [panel = view.workspace.panels[view.index]] in
-                panel.cursorEntry.flatMap { $0.isParent ? nil : $0.url }
+                panel.isInsideArchive ? nil : panel.cursorEntry.flatMap { $0.isParent ? nil : $0.url }
             }
             isMarked = { [panel = view.workspace.panels[view.index]] in panel.isMarked($0) }
             table.setAccessibilityLabel("\(view.workspace.panels[view.index].tab.title) files")
@@ -403,7 +403,9 @@ struct FileTable: NSViewRepresentable {
 
 extension FileTable {
     func copyToPasteboard() {
-        let urls = workspace.panels[index].selectionEntries.map(\.url)
+        let panel = workspace.panels[index]
+        guard !panel.isInsideArchive else { return workspace.say("Copy files out of an archive with F5.") }
+        let urls = panel.selectionEntries.map(\.url)
         guard !urls.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects(urls as [NSURL])
@@ -412,7 +414,8 @@ extension FileTable {
     /// A marked row drags all the marks. Any other row drags alone.
     func dragURLs(row: Int) -> [URL] {
         let panel = workspace.panels[index]
-        guard panel.rows.indices.contains(row), !panel.rows[row].isParent, workspace.pending == nil else { return [] }
+        // A file inside an archive has no path anything else could open.
+        guard panel.rows.indices.contains(row), !panel.rows[row].isParent, workspace.pending == nil, !panel.isInsideArchive else { return [] }
         let entry = panel.rows[row]
         return panel.isMarked(entry) ? panel.selectionEntries.map(\.url) : [entry.url]
     }
@@ -446,7 +449,14 @@ extension FileTable {
         menu.addItem(.separator())
         if isMany { menu.addItem(.sectionHeader(title: "\(entries.count) Marked Items")) }
         menu.add("Copy to Other Panel") { workspace.begin(.copy, entries: entries) }
-        menu.add("Move to Other Panel") { workspace.begin(.move, entries: entries) }
+        if !panel.isInsideArchive {
+            menu.add("Move to Other Panel") { workspace.begin(.move, entries: entries) }
+            menu.add("Compress") { workspace.beginCompress() }
+        }
+        if panel.isInsideArchive || entries.contains(where: \.isArchive) {
+            menu.add("Extract to Other Panel", action: workspace.beginExtract)
+        }
+        guard !panel.isInsideArchive else { return menu }
         menu.add("Copy") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects(entries.map(\.url) as [NSURL])

@@ -52,6 +52,8 @@ public struct JobReport: Sendable {
         case .trash: "Moved to Trash:"
         case .delete: "Deleted"
         case .rename: "Renamed"
+        case .extract: "Extracted"
+        case .compress: "Compressed"
         }
         var text = kind == .rename && succeeded == 0 ? "Nothing was renamed." : "\(verb) \(succeeded) item\(succeeded == 1 ? "" : "s")."
         if wasStopped { text = "Stopped. " + text }
@@ -144,6 +146,8 @@ public final class JobQueue {
             report.isUndo = preview.isUndo
             return report
         }
+        if preview.kind == .compress { return compress(preview, control) }
+        if preview.kind == .extract { return extract(preview, choice, control) }
         var report = JobReport(kind: preview.kind)
         let engine = CopyEngine(control: control)
         let sizes = measure(preview, choice, control)
@@ -163,7 +167,7 @@ public final class JobQueue {
                 case .delete:
                     // Removes a link rather than what it points to.
                     try FileManager.default.removeItem(at: item.source.url)
-                case .rename:
+                case .rename, .compress, .extract:
                     break
                 case .copy, .move:
                     guard let target = preview.destination(of: item, choice) else {
@@ -192,13 +196,79 @@ public final class JobQueue {
         return report
     }
 
+    /// Goes through each archive once, however many items are coming out of it.
+    private nonisolated static func extract(_ preview: OperationPreview, _ choice: ConflictChoice, _ control: JobControl) -> JobReport {
+        var report = JobReport(kind: .extract)
+        var groups: [URL: [(name: String, item: ArchiveExtractor.Item)]] = [:]
+        for planned in preview.items {
+            guard let target = preview.destination(of: planned, choice), let place = ArchivePath.split(planned.source.url) else {
+                report.skipped += 1
+                continue
+            }
+            // Only a conflict the preview showed may be replaced.
+            let conflict = planned.existing == nil ? ConflictChoice.skip : choice
+            groups[place.archive, default: []].append(
+                (planned.source.fileName, ArchiveExtractor.Item(inner: place.inner, target: target, conflict: conflict))
+            )
+        }
+        let sizes = groups.keys.map { Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+        control.expect(bytes: sizes.reduce(0, +))
+        var settled: Int64 = 0
+        for (index, group) in zip(sizes.indices, groups) {
+            guard !control.isCancelled else {
+                report.wasStopped = true
+                break
+            }
+            control.begin(group.key.lastPathComponent)
+            do throws(OperationError) {
+                let result = try ArchiveExtractor(control: control).extract(group.key, items: group.value.map(\.item))
+                report.keptNewer += result.report.keptNewer
+                report.failures += result.report.failures
+                for (entry, problem) in zip(group.value, result.problems) {
+                    if let problem {
+                        report.failures.append((entry.name, problem.message))
+                    } else {
+                        report.succeeded += 1
+                    }
+                }
+            } catch .cancelled {
+                report.wasStopped = true
+                break
+            } catch {
+                report.failures.append((group.key.lastPathComponent, error.message))
+            }
+            settled += sizes[index]
+            control.finishItem(settled: settled)
+        }
+        return report
+    }
+
+    private nonisolated static func compress(_ preview: OperationPreview, _ control: JobControl) -> JobReport {
+        var report = JobReport(kind: .compress)
+        guard let target = preview.items.first?.target else { return report }
+        let sizes = measure(preview, .replace, control)
+        control.expect(bytes: sizes.values.reduce(0, +))
+        control.begin(target.lastPathComponent)
+        do throws(OperationError) {
+            let format = target.lastPathComponent.lowercased().hasSuffix(".zip") ? ArchiveFormat.zip : .tarGz
+            let result = try ArchiveWriter(control: control).compress(preview.items.map(\.source.url), to: target, format: format)
+            report.succeeded = preview.items.count
+            report.failures = result.failures
+        } catch .cancelled {
+            report.wasStopped = true
+        } catch {
+            report.failures.append((target.lastPathComponent, error.message))
+        }
+        return report
+    }
+
     /// The bytes each item that will run has to copy. Trash and delete don't count bytes, so they have none,
     /// and their progress goes by items. Folders are walked here because listings don't size them.
     /// shortcut: Stop waits for the folder being walked. Check `control` inside the walk if that proves slow.
     private nonisolated static func measure(_ preview: OperationPreview, _ choice: ConflictChoice, _ control: JobControl) -> [URL: Int64] {
-        guard preview.kind == .copy || preview.kind == .move else { return [:] }
         var sizes: [URL: Int64] = [:]
-        for item in preview.items where preview.destination(of: item, choice) != nil && !control.isCancelled {
+        guard preview.kind == .copy || preview.kind == .move || preview.kind == .compress else { return [:] }
+        for item in preview.items where (preview.kind == .compress || preview.destination(of: item, choice) != nil) && !control.isCancelled {
             let isFolder = item.source.isDirectory && !item.source.isSymlink
             sizes[item.source.url] = isFolder ? LocalSource.measure(item.source.url) ?? 0 : item.source.size ?? 0
         }

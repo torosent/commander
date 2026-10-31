@@ -7,6 +7,10 @@ struct KeyColumn: View {
 
     private var panel: Panel { workspace.active }
     private var nothingSelected: Bool { panel.selectionCount == 0 }
+    private var canExtract: Bool {
+        // Marks aren't searched here, because this runs on every render. Extract says if none are archives.
+        panel.isInsideArchive ? !nothingSelected : panel.markedCount > 0 || panel.cursorEntry?.isArchive == true
+    }
     private var arrow: String { workspace.activeIndex == 0 ? "arrow.right" : "arrow.left" }
 
     var body: some View {
@@ -31,12 +35,11 @@ struct KeyColumn: View {
                     isPartial: panel.isMeasuring, arrow: arrow, compact: compact
                 )
                 Spacer(minLength: 0)
-                key("Compress", "⌘⇧P", "archivebox", disabled: nothingSelected, compact: compact)
-                // Stays off until archives exist in milestone 6.
-                key("Extract", "⌘⇧U", "archivebox.fill", disabled: true, compact: compact)
+                key("Compress", "⌘⇧P", "archivebox", disabled: nothingSelected || panel.isInsideArchive, compact: compact, action: workspace.beginCompress)
+                key("Extract", "⌘⇧U", "archivebox.fill", disabled: !canExtract, compact: compact, action: workspace.beginExtract)
                 rule
                 key("View", "F3", "eye", compact: compact, action: workspace.toggleViewer)
-                key("Edit", "F4", "pencil", compact: compact, action: workspace.edit)
+                key("Edit", "F4", "pencil", disabled: panel.isInsideArchive, compact: compact, action: workspace.edit)
             }
             .frame(maxHeight: .infinity)
 
@@ -44,11 +47,11 @@ struct KeyColumn: View {
                 .padding(.vertical, 6)
 
             VStack(spacing: compact ? 5 : 6) {
-                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected, compact: compact) { workspace.begin(.move) }
-                key("New", "F7", "plus", compact: compact) { panel.beginNewFolder() }
-                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected, compact: compact) { workspace.begin(.trash) }
+                key("Move", "F6", arrow, tone: .move, disabled: nothingSelected || panel.isInsideArchive, compact: compact) { workspace.begin(.move) }
+                key("New", "F7", "plus", disabled: panel.isInsideArchive, compact: compact) { panel.beginNewFolder() }
+                key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected || panel.isInsideArchive, compact: compact) { workspace.begin(.trash) }
                 rule
-                key("Rename", "⌘⇧R", "character.cursor.ibeam", disabled: nothingSelected, compact: compact, action: workspace.beginRename)
+                key("Rename", "⌘⇧R", "character.cursor.ibeam", disabled: nothingSelected || panel.isInsideArchive, compact: compact, action: workspace.beginRename)
                 key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact)
                 Spacer(minLength: 0)
             }
@@ -66,6 +69,8 @@ struct KeyColumn: View {
         case .move: return title == "Move"
         case .trash, .delete: return title == "Trash"
         case .rename: return title == "Rename"
+        case .extract: return title == "Extract"
+        case .compress: return title == "Compress"
         }
     }
 

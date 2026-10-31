@@ -85,6 +85,12 @@ private struct BrowseCommands: Commands {
             Button("Multi-Rename…", action: workspace.beginRename)
                 .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(workspace.isTyping)
+            Button("Compress…", action: workspace.beginCompress)
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(workspace.isTyping)
+            Button("Extract", action: workspace.beginExtract)
+                .keyboardShortcut("u", modifiers: [.command, .shift])
+                .disabled(workspace.isTyping)
             Button("Show Actions") { NSApp.sendAction(#selector(KeyTable.showActions(_:)), to: nil, from: nil) }
                 .keyboardShortcut("m", modifiers: [.command, .option])
             Button("Copy Path") { workspace.copyPath() }

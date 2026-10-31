@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [.library(name: "CommanderCore", targets: ["CommanderCore"])],
     targets: [
-        .target(name: "CommanderCore"),
-        .testTarget(name: "CommanderCoreTests", dependencies: ["CommanderCore"]),
+        .systemLibrary(name: "CArchive"),
+        .target(name: "CommanderCore", dependencies: ["CArchive"]),
+        .testTarget(name: "CommanderCoreTests", dependencies: ["CommanderCore", "CArchive"]),
     ]
 )

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum OperationKind: String, Sendable {
-    case copy, move, trash, delete, rename
+    case copy, move, trash, delete, rename, extract, compress
 }
 
 public enum ConflictChoice: CaseIterable, Sendable {
@@ -16,6 +16,7 @@ public enum OperationRefusal: Error, Equatable, Sendable {
     case sharedName(String)
     case fileAndFolder(String)
     case destinationMissing
+    case readOnlyArchive
 
     public var message: String {
         switch self {
@@ -25,6 +26,7 @@ public enum OperationRefusal: Error, Equatable, Sendable {
         case .sharedName(let name): "More than one marked file is named \(name). Handle them one at a time."
         case .fileAndFolder(let name): "\(name) is a file on one side and a folder on the other, so one can't replace the other."
         case .destinationMissing: "The destination folder doesn't exist."
+        case .readOnlyArchive: "Archives are read-only. Copy or extract the files instead."
         }
     }
 }
@@ -47,6 +49,8 @@ public struct PlannedItem: Identifiable, Sendable {
     public let existing: Existing?
     /// Where Keep Both puts it, chosen once so the preview and the result can't differ.
     public internal(set) var keepBothTarget: URL?
+    /// True when an archive unpacks here as a folder.
+    public internal(set) var unpacksArchive = false
 
     public var id: URL { source.url }
 }
@@ -66,7 +70,9 @@ public struct OperationPreview: Sendable {
 
     /// Skip whenever something newer would be overwritten, so that takes a deliberate choice.
     public var defaultChoice: ConflictChoice {
-        conflicts.contains { $0.existing?.isNewer == true } ? .skip : .replace
+        // Unpacking over a folder of the same name is rarely meant, so it lands beside it.
+        if items.contains(where: \.unpacksArchive) { return .keepBoth }
+        return conflicts.contains { $0.existing?.isNewer == true } ? .skip : .replace
     }
 
     /// Where an item ends up under a choice, or nil if it's skipped.
@@ -87,21 +93,29 @@ public struct OperationPreview: Sendable {
     public static func plan(_ kind: OperationKind, sources: [FileEntry], into folder: URL?) throws(OperationRefusal) -> OperationPreview {
         let sources = sources.filter { !$0.isParent }
         guard !sources.isEmpty else { throw .nothingSelected }
-        guard kind == .copy || kind == .move, let folder else {
+        let isInside = sources.contains { ArchivePath.split($0.url)?.inner.isEmpty == false }
+        if isInside, kind != .copy, kind != .extract { throw .readOnlyArchive }
+        // Copying out of an archive is extracting. The panel's contents aren't real files to hand to the engine.
+        let kind = isInside ? OperationKind.extract : kind
+        guard kind == .copy || kind == .move || kind == .extract, let folder else {
             return OperationPreview(
                 kind: kind, folder: nil,
                 items: sources.map { PlannedItem(source: $0, target: nil, existing: nil) },
                 alreadyThere: 0
             )
         }
+        if ArchivePath.split(folder) != nil { throw .readOnlyArchive }
         guard let destination = FileNames.realPath(folder) else { throw .destinationMissing }
         var items: [PlannedItem] = []
         var names = Set<String>()
         var alreadyThere = 0
         for source in sources {
+            let unpacks = kind == .extract && ArchivePath.split(source.url)?.inner.isEmpty == true
+            // One compressed file comes out as that file. Anything else comes out as a folder.
+            let makesFolder = unpacks && !ArchivePath.isSingleFile(source.fileName)
             // Real paths, so a symlinked route to the same folder is caught too.
             let parent = FileNames.realPath(source.url.deletingLastPathComponent())
-            if parent == destination {
+            if parent == destination, !unpacks {
                 alreadyThere += 1
                 continue
             }
@@ -109,14 +123,22 @@ public struct OperationPreview: Sendable {
                destination == real || destination.hasPrefix(real + "/") {
                 throw .folderIntoItself
             }
-            let name = source.fileName
+            let name = unpacks ? ArchivePath.stem(source.fileName) : source.fileName
             guard names.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted else {
                 throw .sharedName(name)
             }
-            let target = folder.appending(path: name)
-            let found = existing(at: target, against: source)
-            if let found, found.isDirectory != (source.isDirectory && !source.isSymlink) { throw .fileAndFolder(name) }
-            items.append(PlannedItem(source: source, target: target, existing: found))
+            var target = folder.appending(path: name)
+            var found = existing(at: target, against: source)
+            if makesFolder, found?.isDirectory == false {
+                // A folder can't replace a file, and the name is only a default, so it moves aside.
+                target = FileNames.free(target, avoiding: names)
+                names.insert(FileNames.key(target))
+                found = nil
+            }
+            if !makesFolder, let found, found.isDirectory != (source.isDirectory && !source.isSymlink) { throw .fileAndFolder(name) }
+            var item = PlannedItem(source: source, target: target, existing: found)
+            item.unpacksArchive = makesFolder
+            items.append(item)
         }
         guard !items.isEmpty else { throw .alreadyThere }
         for index in items.indices where items[index].existing != nil {
@@ -126,6 +148,14 @@ public struct OperationPreview: Sendable {
             items[index].keepBothTarget = free
         }
         return OperationPreview(kind: kind, folder: folder, items: items, alreadyThere: alreadyThere)
+    }
+
+    /// Packing files into one new archive. Only the first item has a target, because they all end up there.
+    static func compress(_ sources: [FileEntry], to archive: URL) -> OperationPreview {
+        let items = sources.enumerated().map { index, source in
+            PlannedItem(source: source, target: index == 0 ? archive : nil, existing: nil)
+        }
+        return OperationPreview(kind: .compress, folder: archive.deletingLastPathComponent(), items: items, alreadyThere: 0)
     }
 
     /// Asks the file system rather than comparing names, so case and Unicode rules are the volume's own.
@@ -225,6 +255,20 @@ public struct PendingOperation {
     public let source: Panel?
     public let destination: Panel?
     public var choice: ConflictChoice
+    /// The name and format being typed, for a compress.
+    public var archive: ArchiveDraft?
+}
+
+/// A new archive's name, chosen in the status bar.
+public struct ArchiveDraft: Equatable, Sendable {
+    public var name: String
+    public var format: ArchiveFormat
+    public var fileName: String { "\(name).\(format.ext)" }
+
+    public init(name: String, format: ArchiveFormat = .zip) {
+        self.name = name
+        self.format = format
+    }
 }
 
 public struct EditState: Equatable, Sendable {

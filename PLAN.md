@@ -93,6 +93,7 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | Rename in place | ⇧F6 or ⌥⌘R |
 | Multi-rename | ⌘⇧R |
 | Compress / uncompress | ⌘⇧P / ⌘⇧U |
+| Compress: ZIP or TAR.GZ | Tab in the name field |
 | Compare and sync | ⌘⇧D |
 | Find Files | ⌘F |
 | Hidden files | ⌘⇧. |
@@ -114,7 +115,8 @@ Commander/                 App target: windows, panels, key column, dialogs, men
 Packages/CommanderCore/
   Sources/CommanderCore/
     Model/                 FileEntry, PanelState, TabState, Selection
-    Sources/               FileSource, LocalSource, ArchiveSource
+    Sources/               FileSource, LocalSource
+    Archive/               ArchivePath, reader, RoutedSource, extractor, writer
     Jobs/                  JobQueue, CopyEngine, ConflictPolicy, OperationPreview
     Rename/                Pattern parser and renamer
     Compare/               Tree comparer and sync planner
@@ -247,16 +249,28 @@ Decided in M5:
 
 Start with the spike, because the rest depends on its answer.
 
-- [ ] Spike: link the system `libarchive` with matching headers and confirm ZIP, TAR, GZ, 7z and RAR reading. If a format is missing or the linkage is unsafe, vendor the library.
-- [ ] `ArchiveSource` so archives open as read-only folders
-- [ ] Extract to the other panel, with preview rows
-- [ ] Copy out of an archive
-- [ ] Compress to a new ZIP or TAR.GZ
-- [ ] Decide how password-protected archives behave
+- [x] Spike: link the system `libarchive` with matching headers and confirm ZIP, TAR, GZ, 7z and RAR reading. If a format is missing or the linkage is unsafe, vendor the library.
+- [x] `ArchiveSource` so archives open as read-only folders
+- [x] Extract to the other panel, with preview rows
+- [x] Copy out of an archive
+- [x] Compress to a new ZIP or TAR.GZ
+- [x] Decide how password-protected archives behave
 
 **Tests:** malicious archives with `../` paths, absolute paths and symlink escapes; corrupt and truncated files; very large archives.
 
 **Exit:** a malicious archive cannot write outside its target folder, and all listed formats open.
+
+**Status:** code complete, with 306 tests passing. Tried in the running app: opening a ZIP and a 7z, copying a folder out, extracting a hostile TAR, and compressing to ZIP and TAR.GZ. Not yet tried by hand: password-protected archives and very large archives.
+
+Decided in M6:
+
+- The spike passed, with one change to the plan. macOS ships `libarchive` but no headers, so `Sources/CArchive` declares only the functions used, with signatures taken from libarchive 3.7. ZIP, TAR, GZ, 7z and RAR all read, so nothing is vendored.
+- A damaged archive lists what comes before the damage and says so, rather than showing nothing.
+- Password-protected archives aren't unlocked in v1. A ZIP lists normally, and extracting reports those files as password-protected. An archive that also hides its file names says so when opened.
+- Inside an archive a location is a plain path through the file, such as `/x/a.zip/sub`, so tabs, history and session restore work unchanged.
+- Archives are read-only. Move, Trash, rename and new folder are refused there, and nothing can be copied in.
+- Files can be opened from inside an archive through a temporary copy. View Beside and Quick Look ask you to copy the file out first.
+- Compressing keeps links, permissions and dates, but not extended attributes or resource forks.
 
 ### M7: Compare and sync
 
@@ -299,8 +313,6 @@ Decided in M0: the domed keys are a SwiftUI `ButtonStyle` built from a radial gr
 
 | Question | Decide by |
 |---|---|
-| Does the system `libarchive` cover 7z and RAR, and is linking it safe? | Start of M6 |
-| How should password-protected archives behave? | M6 |
 | Should New, Compress and Extract keys be green, since green means copy or create? They are neutral in the prototype. | M2 |
 | Should the run button repeat the count ("Copy 6 items"), given that each fact appears once? | M3 |
 

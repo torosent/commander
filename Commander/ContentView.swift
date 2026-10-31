@@ -101,6 +101,8 @@ private struct StatusBar: View {
         Group {
             if let session = workspace.renameSession {
                 RenameBar(workspace: workspace, session: session)
+            } else if let pending = workspace.pending, let draft = pending.archive {
+                CompressBar(workspace: workspace, pending: pending, draft: draft)
             } else if let pending = workspace.pending {
                 OperationBar(workspace: workspace, pending: pending)
             } else if workspace.isGoingToPath {
@@ -153,6 +155,8 @@ enum JobText {
         case .trash: "Moving to Trash"
         case .delete: "Deleting"
         case .rename: "Renaming"
+        case .extract: "Extracting"
+        case .compress: "Compressing"
         }
     }
 }
@@ -223,12 +227,14 @@ private struct OperationBar: View {
         case .trash: "Trash"
         case .delete: "Delete"
         case .rename: "Rename"
+        case .extract: "Extract"
+        case .compress: "Compress"
         }
     }
 
     private var tint: Color {
         switch preview.kind {
-        case .copy: Theme.rgb(0x3FA34D)
+        case .copy, .extract, .compress: Theme.rgb(0x3FA34D)
         case .move: Theme.rgb(0xB88A00)
         case .trash, .delete: Theme.rgb(0xD8412F)
         case .rename: Theme.cursor
@@ -237,7 +243,7 @@ private struct OperationBar: View {
 
     private var title: String {
         switch preview.kind {
-        case .copy, .move, .rename: "\(verb) to \(preview.folder?.lastPathComponent ?? "")"
+        case .copy, .move, .rename, .extract, .compress: "\(verb) to \(preview.folder?.lastPathComponent ?? "")"
         case .trash: "Move \(items) to Trash"
         case .delete: "Permanently delete \(items)"
         }
@@ -249,7 +255,7 @@ private struct OperationBar: View {
         switch preview.kind {
         case .trash: parts.append("You can restore these from the Trash")
         case .delete: parts.append("This can't be undone")
-        case .copy, .move, .rename:
+        case .copy, .move, .rename, .extract, .compress:
             if preview.items.count > conflicts { parts.append("\(preview.items.count - conflicts) new") }
             if conflicts > 0 {
                 let what = switch pending.choice {
@@ -264,6 +270,60 @@ private struct OperationBar: View {
             if preview.alreadyThere > 0 { parts.append("\(preview.alreadyThere) already there") }
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Names a new archive. The ghost row in the destination follows the name as it's typed.
+private struct CompressBar: View {
+    let workspace: Workspace
+    let pending: PendingOperation
+    let draft: ArchiveDraft
+
+    @FocusState private var isFocused: Bool
+
+    private var count: Int { pending.preview.items.count }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "archivebox").foregroundStyle(Color(nsColor: Palette.goText)).accessibilityHidden(true)
+            Text("Compress \(count) item\(count == 1 ? "" : "s") to \(pending.preview.folder?.lastPathComponent ?? "")")
+                .fontWeight(.semibold).foregroundStyle(Theme.ink).lineLimit(1).fixedSize()
+            TextField("Archive name", text: Binding(
+                get: { draft.name },
+                set: { workspace.updateArchive(ArchiveDraft(name: $0, format: draft.format)) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .labelsHidden()
+            .frame(width: 180)
+            .focused($isFocused)
+            .onSubmit(workspace.runOperation)
+            .onExitCommand(perform: workspace.cancelOperation)
+            // Letters go into the name, so Tab is what's left for the keyboard.
+            .onKeyPress(.tab) {
+                let next: ArchiveFormat = draft.format == .zip ? .tarGz : .zip
+                workspace.updateArchive(ArchiveDraft(name: draft.name, format: next))
+                return .handled
+            }
+            Picker("Format", selection: Binding(
+                get: { draft.format },
+                set: { workspace.updateArchive(ArchiveDraft(name: draft.name, format: $0)) }
+            )) {
+                ForEach(ArchiveFormat.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            Text("Tab").foregroundStyle(Theme.dim).accessibilityHidden(true)
+            Text(workspace.archiveProblem ?? "").foregroundStyle(Theme.dim).lineLimit(1)
+            Spacer()
+            Button("Cancel", action: workspace.cancelOperation)
+            Button("Compress  ↩", action: workspace.runOperation)
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.rgb(0x3FA34D))
+                .disabled(workspace.archiveProblem != nil)
+        }
+        // The table redraws in the same pass, and SwiftUI would undo a focus change made during it.
+        .onAppear { DispatchQueue.main.async { isFocused = true } }
     }
 }
 

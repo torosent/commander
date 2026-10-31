@@ -42,6 +42,9 @@ public struct FileEntry: Identifiable, Hashable, Sendable {
 
     public var fileName: String { ext.isEmpty ? name : "\(name).\(ext)" }
 
+    /// A file that opens like a folder. Going by the name means a listing needs no extra reads.
+    public var isArchive: Bool { !isDirectory && ArchivePath.isArchiveName(fileName) }
+
     /// The name and extension of a typed file name.
     public static func nameParts(_ fileName: String) -> (name: String, ext: String) {
         split(fileName)

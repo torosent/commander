@@ -43,13 +43,13 @@ public final class Workspace {
     @ObservationIgnored private var patternOpens = 0
     @ObservationIgnored private var planning: Task<Void, Never>?
 
-    public init(left: URL, right: URL, source: any FileSource = LocalSource()) {
+    public init(left: URL, right: URL, source: any FileSource = RoutedSource()) {
         panels = [Panel(tabs: [TabState(location: left)], source: source), Panel(tabs: [TabState(location: right)], source: source)]
         connect()
     }
 
     /// Restores a saved session. Hidden files come from settings rather than the session.
-    public init(session: Session?, fallback: URL, showHidden: Bool = false, source: any FileSource = LocalSource()) {
+    public init(session: Session?, fallback: URL, showHidden: Bool = false, source: any FileSource = RoutedSource()) {
         let saved = session?.panels ?? []
         panels = (0..<2).map { index in
             let state = saved.indices.contains(index) ? saved[index] : nil
@@ -77,6 +77,12 @@ public final class Workspace {
         } else {
             say(isUndoable ? "\(report.summary) Press ⌘Z to undo." : report.summary)
         }
+    }
+
+    /// True while a bar or an inline edit is open, which another bar shouldn't open on top of.
+    /// The keys reach these even when `isTyping` holds the menus back.
+    private var hasOpenField: Bool {
+        patternBar != nil || isGoingToPath || panels.contains { $0.edit != nil }
     }
 
     public var isTyping: Bool {
@@ -165,11 +171,11 @@ public final class Workspace {
 
     /// Plans an operation on the selection, or on `entries` if given. Nothing happens until it's run.
     public func begin(_ kind: OperationKind, entries: [FileEntry]? = nil, into folder: URL? = nil) {
-        guard pending == nil, planning == nil else { return }
+        guard pending == nil, planning == nil, !hasOpenField else { return }
         let other = panels[1 - activeIndex]
         let home = entries?.first.flatMap { FileNames.realPath($0.url.deletingLastPathComponent()) }
         let source = entries == nil ? active : [active, other].first { FileNames.realPath($0.location) == home }
-        let isTransfer = kind == .copy || kind == .move
+        let isTransfer = kind == .copy || kind == .move || kind == .extract
         let target = isTransfer ? folder ?? other.location : nil
         let destination = isTransfer ? panels.first { $0.location.path == target?.path } : nil
         let sources = entries ?? active.selectionEntries
@@ -207,14 +213,69 @@ public final class Workspace {
         showPending(scroll: false)
     }
 
+    /// Packs the selection into a new archive in the other panel, named in the status bar.
+    public func beginCompress() {
+        guard pending == nil, planning == nil, !hasOpenField else { return }
+        let sources = active.selectionEntries
+        guard !sources.isEmpty else { return say("Move the cursor to a file, or mark some first.") }
+        let other = panels[1 - activeIndex]
+        guard !active.isInsideArchive, !other.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
+        // The archive would be built inside something it's reading.
+        let destination = FileNames.realPath(other.location) ?? other.location.path
+        let isInside = sources.contains { source in
+            guard source.isDirectory, !source.isSymlink, let real = FileNames.realPath(source.url) else { return false }
+            return destination == real || destination.hasPrefix(real + "/")
+        }
+        guard !isInside else { return say(OperationRefusal.folderIntoItself.message) }
+        if viewer != nil { closeViewer() }
+        let name = sources.count == 1 ? sources[0].name : active.location.lastPathComponent
+        var draft = ArchiveDraft(name: name)
+        if FileNames.exists(other.location.appending(path: draft.fileName)) {
+            draft.name = FileNames.free(other.location.appending(path: draft.fileName)).lastPathComponent
+            draft.name = String(draft.name.dropLast(draft.format.ext.count + 1))
+        }
+        pending = PendingOperation(
+            preview: OperationPreview.compress(sources, to: other.location.appending(path: draft.fileName)),
+            source: active, destination: other, choice: .replace, archive: draft
+        )
+        showPending(scroll: true)
+    }
+
+    public func updateArchive(_ draft: ArchiveDraft) {
+        guard let current = pending, current.archive != nil, let folder = current.preview.folder else { return }
+        let sources = current.preview.items.map(\.source)
+        pending = PendingOperation(
+            preview: OperationPreview.compress(sources, to: folder.appending(path: draft.name.isEmpty ? "untitled" : draft.fileName)),
+            source: current.source, destination: current.destination, choice: current.choice, archive: draft
+        )
+        showPending(scroll: false)
+    }
+
+    /// What's stopping this compress, if anything.
+    public var archiveProblem: String? {
+        guard let draft = pending?.archive, let folder = pending?.preview.folder else { return nil }
+        if let problem = FileNames.problem(with: draft.name) { return problem }
+        return FileNames.exists(folder.appending(path: draft.fileName)) ? "\(draft.fileName) already exists there." : nil
+    }
+
+    /// Unpacks the selected archives into the other panel. Inside an archive, it takes out the selection.
+    public func beginExtract() {
+        if active.isInsideArchive { return begin(.extract) }
+        let archives = active.selectionEntries.filter(\.isArchive)
+        guard !archives.isEmpty else { return say("Move the cursor to an archive, or mark some first.") }
+        begin(.extract, entries: archives)
+    }
+
     public func cancelOperation() {
         pending?.source?.clearPreview()
         pending?.destination?.clearPreview()
+        // The name field had focus and is going away, which would leave the keyboard with nothing.
+        if pending?.archive != nil { returnFocus() }
         pending = nil
     }
 
     public func runOperation() {
-        guard let pending else { return }
+        guard let pending, archiveProblem == nil else { return }
         cancelOperation()
         guard pending.preview.runCount(pending.choice) > 0 else {
             return say("Nothing to do: every item was skipped.")
@@ -230,7 +291,8 @@ public final class Workspace {
     private func showPending(scroll: Bool) {
         guard let pending else { return }
         let (preview, choice) = (pending.preview, pending.choice)
-        if preview.kind != .copy {
+        // Only these take the files away. Compress and extract leave the originals where they are.
+        if [.move, .trash, .delete].contains(preview.kind) {
             let leaving = Dictionary(preview.items.map { (FileNames.key($0.source.url), RowPreview.leaving) }) { first, _ in first }
             pending.source?.showPreview(states: leaving, ghosts: [], kind: preview.kind, scroll: false)
         }
@@ -243,9 +305,11 @@ public final class Workspace {
                 states[FileNames.key(target)] = choice == .skip ? .skipped
                     : existing.isDirectory ? .merging : .replacing(existing.age)
             } else if let final = preview.destination(of: item, choice) {
+                let isCompress = preview.kind == .compress
                 ghosts.append(FileEntry(
-                    url: final, fileName: final.lastPathComponent, size: item.source.size,
-                    modified: item.source.modified, isDirectory: item.source.isDirectory, isPackage: item.source.isPackage
+                    url: final, fileName: final.lastPathComponent, size: isCompress || item.source.isArchive ? nil : item.source.size,
+                    modified: item.source.modified, isDirectory: item.unpacksArchive || (item.source.isDirectory && !isCompress),
+                    isPackage: item.source.isPackage
                 ))
                 states[FileNames.key(final)] = .incoming
             }
@@ -276,9 +340,9 @@ public final class Workspace {
 
     /// Opens on the marked files, or the cursor's. Folders are left out, but packages count as files.
     public func beginRename() {
-        guard pending == nil, planning == nil, renameSession == nil, patternBar == nil, !isGoingToPath,
-              !panels.contains(where: { $0.edit != nil }) else { return }
+        guard pending == nil, planning == nil, renameSession == nil, !hasOpenField else { return }
         let files = active.selectionEntries.filter { !$0.opensAsFolder }
+        guard !active.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
         guard !files.isEmpty else { return say("Mark the files to rename first.") }
         if viewer != nil { closeViewer() }
         renameSession = RenameSession(panel: active, files: files)
@@ -335,11 +399,12 @@ public final class Workspace {
         guard let entry = active.cursorEntry, !entry.isParent, !entry.isDirectory else {
             return say("Move the cursor to a file to edit it.")
         }
+        if active.isInsideArchive { return say(OperationRefusal.readOnlyArchive.message) }
         desktop.edit(entry.url)
     }
 
     public func openTerminal() {
-        desktop.openTerminal(active.location)
+        desktop.openTerminal(active.realFolder)
     }
 
     /// Copies the selection's paths, or the folder's if nothing is selected.
@@ -375,7 +440,7 @@ public final class Workspace {
         process.executableURL = URL(filePath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
         // A login shell, because an app started from the Dock doesn't get the user's PATH.
         process.arguments = ["-lc", text]
-        process.currentDirectoryURL = active.location
+        process.currentDirectoryURL = active.realFolder
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = handle
         process.standardError = handle
@@ -431,6 +496,33 @@ public final class Workspace {
             viewer = shown
         }
         try? FileManager.default.removeItem(at: output)
+    }
+
+    // MARK: Inside archives
+
+    /// Opens a file inside an archive by unpacking it somewhere temporary first.
+    /// shortcut: the temporary copy stays until the system clears it. Track and remove these if they pile up.
+    fileprivate func openInArchive(_ entry: FileEntry) {
+        guard let place = ArchivePath.split(entry.url) else { return }
+        let folder = FileManager.default.temporaryDirectory.appending(path: "commander-open-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let target = folder.appending(path: entry.fileName)
+        say("Opening \(entry.fileName)…")
+        Task {
+            let problem = await Task.detached(priority: .userInitiated) { () -> String? in
+                do {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                } catch {
+                    return error.localizedDescription
+                }
+                do throws(OperationError) {
+                    _ = try ArchiveExtractor().extract(place.archive, inner: place.inner, to: target, conflict: .skip)
+                    return nil
+                } catch {
+                    return error.message
+                }
+            }.value
+            if let problem { say(problem) } else { openFile(target) }
+        }
     }
 
     // MARK: Clipboard
@@ -554,9 +646,14 @@ public final class Panel {
 
     // MARK: Loading
 
-    /// Waits for the current load. Used by tests and at launch.
+    /// Waits until the folder is loaded. Used by tests and at launch.
+    /// It loops, because a change on disk can start a newer load that cancels the one being waited for.
     public func loaded() async {
         await loading?.value
+        while isLoading {
+            await Task.yield()
+            await loading?.value
+        }
     }
 
     public func refresh() {
@@ -606,6 +703,7 @@ public final class Panel {
             tabs[tabIndex].entries = withKnownSizes(listing.entries)
             tabs[tabIndex].failure = nil
             freeSpace = listing.freeSpace
+            if let notice = listing.notice { workspace?.say(notice) }
             startWatching()
             rebuildRows(cursor: cursor)
             measureMarkedFolders()
@@ -756,8 +854,15 @@ public final class Panel {
 
     // MARK: New folders and renames
 
+    /// True while showing the inside of an archive, which can be read but not changed.
+    public var isInsideArchive: Bool { ArchivePath.split(location) != nil }
+
+    /// Somewhere that really exists on disk: the folder holding the archive, if inside one.
+    var realFolder: URL { ArchivePath.split(location)?.archive.deletingLastPathComponent() ?? location }
+
     public func beginNewFolder() {
         guard tab.failure == nil, edit == nil, workspace?.pending == nil else { return }
+        guard !isInsideArchive else { workspace?.say(OperationRefusal.readOnlyArchive.message); return }
         let url = FileNames.freeFolder(in: location)
         let draft = FileEntry(url: url, fileName: url.lastPathComponent, size: nil, modified: nil, isDirectory: true)
         draftFolder = draft
@@ -768,6 +873,7 @@ public final class Panel {
 
     public func beginRename() {
         guard let entry = cursorEntry, !entry.isParent, edit == nil, workspace?.pending == nil else { return }
+        guard !isInsideArchive else { workspace?.say(OperationRefusal.readOnlyArchive.message); return }
         edit = EditState(kind: .rename(entry.url), text: entry.fileName)
     }
 
@@ -878,8 +984,10 @@ public final class Panel {
         guard let entry = cursorEntry else { return }
         if entry.isParent {
             goUp()
-        } else if entry.opensAsFolder || (asFolder && entry.isDirectory) {
+        } else if entry.opensAsFolder || (asFolder && entry.isDirectory) || (!isInsideArchive && entry.isArchive) {
             navigate(to: entry.url)
+        } else if isInsideArchive {
+            workspace?.openInArchive(entry)
         } else {
             workspace?.openFile(entry.url)
         }

@@ -30,6 +30,10 @@ public final class Viewer {
         guard let entry, !entry.isParent, !entry.isDirectory else {
             return clear(title: entry.map(\.fileName) ?? "Viewer", notice: "Move the cursor to a file to view it.")
         }
+        // shortcut: there's nothing on disk to read until it's unpacked. Extract to a temporary file here if this is missed.
+        if ArchivePath.split(entry.url)?.inner.isEmpty == false {
+            return clear(title: entry.fileName, notice: "Copy this file out of the archive to view it.")
+        }
         load(entry.url, title: entry.fileName, modified: entry.modified)
     }
 
