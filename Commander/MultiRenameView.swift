@@ -142,14 +142,17 @@ private struct RenameRowView: View {
         HStack(spacing: 0) {
             RenameColumns(
                 name: row.entry.name, ext: row.entry.ext, size: size, modified: modified,
-                symbol: "doc", ink: Theme.ink, isBold: false
+                symbol: "doc", ink: Theme.ink, isBold: false,
+                fileIcon: FileIconView(name: row.entry.fileName, url: row.entry.url, modified: row.entry.modified)
             )
             lane.frame(width: 84)
             RenameColumns(
                 name: row.name, ext: row.ext, size: size, modified: modified,
                 symbol: row.problem == nil ? "doc" : "exclamationmark.triangle",
                 ink: row.problem != nil || row.isChanged ? Theme.ink : Theme.dim,
-                isBold: row.problem != nil || row.isChanged
+                isBold: row.problem != nil || row.isChanged,
+                // The new name's type, because a changed extension changes the icon.
+                fileIcon: row.problem == nil ? FileIconView(name: row.fileName, url: row.isChanged ? nil : row.entry.url, modified: row.entry.modified) : nil
             )
             .background(row.problem == nil ? Color.clear : Theme.line)
         }
@@ -189,9 +192,12 @@ struct RenameColumns: View {
     let ext: String
     let size: String
     let modified: String
+    /// Empty on a side with no file, which draws nothing but keeps the row's colours.
     var symbol: String?
     let ink: Color
     let isBold: Bool
+    /// Takes the place of `symbol` on a row that's a real file.
+    var fileIcon: FileIconView?
     var indent: CGFloat = 0
     /// The ink for everything but the name, for rows where dim wouldn't show.
     var detailInk: Color?
@@ -199,7 +205,9 @@ struct RenameColumns: View {
     var body: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: indent)
-            if let symbol {
+            if let fileIcon {
+                fileIcon.frame(width: 18)
+            } else if let symbol, !symbol.isEmpty {
                 Image(systemName: symbol).foregroundStyle(detailInk ?? Theme.dim).frame(width: 18).accessibilityHidden(true)
             }
             Text(name).fontWeight(isBold ? .semibold : .regular).foregroundStyle(ink)

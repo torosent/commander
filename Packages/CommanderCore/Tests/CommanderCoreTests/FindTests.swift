@@ -308,8 +308,9 @@ private func find(
 
     @Test func clearingTheFieldsLeavesNothingBehind() async throws {
         let temp = try TempFolder()
-        // Enough to still be reading when the field is cleared.
-        for index in 0..<4_000 { try temp.file("a/file\(index).md", bytes: 4_096) }
+        // Sparse files, which take a moment to search and none to make. Many small ones
+        // would be made on the main actor and hold up every other test.
+        for index in 0..<60 { #expect(truncate(try temp.file("a/file\(index).md").path, 1024 * 1024) == 0) }
         let app = try await setup(temp)
         app.beginFind()
         let session = try #require(app.find)

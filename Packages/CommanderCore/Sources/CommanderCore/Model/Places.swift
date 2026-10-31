@@ -31,6 +31,11 @@ public enum Places {
         }
     }
 
+    /// The folder holding something, as a person would write it.
+    public static func folderText(of url: URL) -> String {
+        (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+    }
+
     /// Clickable path segments, shortened to `~` inside home and to the volume name on external volumes.
     public static func crumbs(for url: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [Place] {
         let path = url.standardizedFileURL.pathComponents

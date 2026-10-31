@@ -166,9 +166,14 @@ import Testing
         panel.navigate(to: sub)
         await panel.loaded()
         try FileManager.default.removeItem(at: sub)
-        await settle(panel) { panel.location.lastPathComponent != "sub" }
+        // Watched for as it appears, because a message clears itself and a busy test run can outlast it.
+        var wasTold = false
+        await settle(panel) {
+            wasTold = wasTold || workspace.message != nil
+            return wasTold && panel.location.lastPathComponent != "sub"
+        }
         #expect(panel.location.path == temp.url.path)
-        #expect(workspace.message != nil)
+        #expect(wasTold)
     }
 
     @Test func unreadableFolderShowsAFailure() async throws {

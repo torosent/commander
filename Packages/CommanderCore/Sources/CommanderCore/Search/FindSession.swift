@@ -6,7 +6,8 @@ import Observation
 @Observable
 public final class FindSession {
     public let id = UUID()
-    public let panel: Panel
+    /// Where the results tab is now, which changes if the tab is moved to the other panel.
+    public internal(set) var panel: Panel
     public var query = FindQuery() {
         didSet { if query != oldValue { restart() } }
     }

@@ -34,7 +34,7 @@ kbd{font:inherit;color:var(--dim)}
 .p{display:grid;grid-template-rows:28px 28px 22px minmax(0,1fr) 24px;min-height:0;background:var(--deck)}
 .p.plain{grid-template-rows:28px 22px minmax(0,1fr)}
 .tabs{display:flex;align-items:flex-end;gap:1px;padding:0 8px;background:var(--case)}
-.tabs button{height:24px;padding:0 12px;border-radius:6px 6px 0 0;color:var(--dim)}.tabs button.on{background:var(--deck);color:var(--ink)}
+.tabs button{height:24px;padding:0 12px;border-radius:6px 6px 0 0;color:var(--dim)}.tabs button.on{background:var(--deck);color:var(--ink)}.tabs button .tx{margin-left:8px;font-style:normal;opacity:0}.tabs button.on .tx,.tabs button:hover .tx{opacity:1}.tabs .tnew{margin-left:auto;padding:0 6px}.tabs button.drop{box-shadow:inset 2px 0 0 var(--cur)}
 .path{display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--line);color:var(--dim);white-space:nowrap}.path b{color:var(--ink);font-weight:600}.path em{margin-left:auto;font-style:normal}
 .p.act .path{box-shadow:inset 0 2px 0 var(--cur)}
 .title{display:flex;align-items:center;padding:0 8px;border-bottom:1px solid var(--line);color:var(--dim);background:var(--case)}.title b{color:var(--ink);font-weight:600;margin-right:6px}
@@ -159,7 +159,10 @@ input[type=checkbox]{accent-color:var(--cur)}
 
 <script>
 const $=id=>document.getElementById(id), h=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const ico=(n,s=13,c='')=>`<svg class="i ${c}" width="${s}" height="${s}" aria-hidden="true"><use href="#${n}"/></svg>`;
+const ico=(n,s=13,c='',st='')=>`<svg class="i ${c}" width="${s}" height="${s}" aria-hidden="true"${st?` style="${st}"`:''}><use href="#${n}"/></svg>`;
+// Stand-ins for the file's own icon, which the real build gets from macOS. Their colours belong to the file.
+const TINT={md:'#6E7FA3',txt:'#6E7FA3',json:'#8A6FB0',png:'#3E8FC4',svg:'#3E8FC4',zip:'#8B7355',gz:'#8B7355',dmg:'#7A8794',sh:'#5F6B7A',py:'#3E78B5',js:'#B08D3C'};
+const tint=(i,r)=>r.c||i.up?'':i.dir?'color:#4BA6E8':TINT[i.e]?`color:${TINT[i.e]}`:'';
 const UNIT={B:1,KB:1e3,MB:1e6,GB:1e9}, fmt=b=>b>=99995e4?(b/1e9).toFixed(2)+' GB':b>=99995e1?(b/1e6).toFixed(1)+' MB':b>=1e3?(b/1e3).toFixed(1)+' KB':Math.round(b)+' B';
 const mk=(n,e,s,d)=>({n,e,s,d,b:s?parseFloat(s)*UNIT[s.split(' ')[1]]:0,t:+new Date(d.replace(/^(\d+ \w+)/,'$1 2026')),dir:!s});
 const parse=t=>t.trim().split('\n').map(l=>mk(...l.trim().split('|')));
@@ -305,7 +308,7 @@ function panel(p){
   const last=t.crumbs.length-1, path=t.crumbs.map((c,i)=>i===last?`<b>${h(c)}</b>`:h(c)+' /').join(' ');
   const vis=shown(t), hid=t.items.length-vis.length, tb=vis.reduce((s,i)=>s+i.b,0);
   const qs=act&&S.qs, qn=qs?vis.filter(i=>full(i).toLowerCase().includes(S.qs)).length:0;
-  el.innerHTML=`<div class="tabs" role="tablist">${S.panels[p].tabs.map((x,i)=>`<button role="tab" aria-selected="${i===S.panels[p].tab}" class="${i===S.panels[p].tab?'on':''}" data-a="tab" data-p="${p}" data-v="${i}">${h(x.name)}</button>`).join('')}</div>
+  el.innerHTML=`<div class="tabs" role="tablist">${S.panels[p].tabs.map((x,i)=>`<button role="tab" draggable="true" aria-selected="${i===S.panels[p].tab}" class="${i===S.panels[p].tab?'on':''}" data-a="tab" data-p="${p}" data-v="${i}">${h(x.name)}${S.panels[p].tabs.length>1?`<i class="tx" data-a="tabclose" data-p="${p}" data-v="${i}" aria-label="Close ${h(x.name)}">×</i>`:''}</button>`).join('')}<button class="tnew" data-a="tabnew" data-p="${p}" aria-label="New tab">+</button></div>
   <div class="path"><button class="nv" data-a="back" data-p="${p}" aria-label="Back" ${t.hist.length?'':'disabled'}>${ico('chev',12)}</button><button class="nv" data-a="forward" data-p="${p}" aria-label="Forward" ${t.fwd.length?'':'disabled'}>${ico('chev',12,'fw')}</button><span>${path}</span><em>${t.free}</em></div>
   <div class="r hd">${cols.map(([k,l])=>`<button data-a="sort" data-p="${p}" data-v="${k}" ${srt.k===k?`aria-sort="${srt.d>0?'ascending':'descending'}"`:''}>${t.res&&k==='e'?'Folder':l}</button>`).join('')}</div>
   <div class="list" id="list${p}" role="listbox" aria-multiselectable="true" aria-label="${h(t.name)} files"></div>
@@ -325,7 +328,7 @@ function panel(p){
 }
 function rowHTML(r,p,cur,t,n){const i=r.i,k=(S.op?.fresh&&r.c&&!real(r)?'enter ':'')+(r.c||'')+(i.dir?' dir':'')+(isMk(t,i,p)?' mk':'')+(isHid(i)?' hid':'')+(cur?' cur':'');
   const g=r.g||(i.up?'up':i.dir?'folder':'file'), size=i.calc?fmt(i.calc):i.s||'';
-  return `<div class="r ${k}" role="option" aria-selected="${isMk(t,i,p)}" data-a="row" data-p="${p}" data-i="${n}"><div class="name"><b class="tk"></b>${ico(g)}${S.ir?.i===i?`<input id="ir" aria-label="New name" value="${h(S.ir.v)}" spellcheck="false">`:`<span>${h(t.res?full(i):i.n)}</span>`}${r.tag?`<small>${r.tag}</small>`:''}</div><span>${h(t.res?i.where:i.e)}</span><span>${size}</span><span>${i.d}</span></div>`}
+  return `<div class="r ${k}" role="option" aria-selected="${isMk(t,i,p)}" data-a="row" data-p="${p}" data-i="${n}"><div class="name"><b class="tk"></b>${ico(g,16,'',tint(i,r))}${S.ir?.i===i?`<input id="ir" aria-label="New name" value="${h(S.ir.v)}" spellcheck="false">`:`<span>${h(t.res?full(i):i.n)}</span>`}${r.tag?`<small>${r.tag}</small>`:''}</div><span>${h(t.res?i.where:i.e)}</span><span>${size}</span><span>${i.d}</span></div>`}
 
 const KEYS={view:['eye','View','F3'],edit:['edit','Edit','F4'],copy:['copy','Copy','F5','go'],move:['move','Move','F6','mv'],new:['plus','New','F7'],trash:['trash','Trash','F8','rm'],rename:['rename','Rename','⌘⇧R'],compare:['compare','Compare','⌘⇧D'],compress:['archive','Compress','⌘⇧P'],extract:['unpack','Extract','⌘⇧U']};
 function gutter(){
@@ -339,9 +342,10 @@ const VERB={copy:['Copy','Copying','Copied','go'],move:['Move','Moving','Moved',
 const ICON={copy:'copy',move:'move',trash:'trash',compress:'archive',extract:'unpack',sync:'compare'};
 function ibDraw(){const I=S.ib,tail=l=>`<span id="ibN"></span><span class="sp"></span><button class="b" data-a="ibcancel">Cancel <kbd>esc</kbd></button><button class="b pl" data-a="ibrun">${l} <kbd>↩</kbd></button>`;I.drawn=true;
   $('bar').innerHTML=I.kind==='mp'?`${ico('check')}<b>${I.mode==='+'?'Mark':'Unmark'}</b><input id="ibIn" aria-label="Pattern" value="${h(I.q)}" spellcheck="false">`+tail('Apply'):
+  I.kind==='cmp'?`${ico('compare')}<b>Compare</b><select id="ibIn" aria-label="First folder">${cmpTabs().map((t,i)=>`<option value="${i}">${h(t.name)}</option>`).join('')}</select><label>with</label><select id="ibIn2" aria-label="Second folder">${cmpTabs().map((t,i)=>`<option value="${i}" ${t===tab(1)?'selected':''}>${h(t.name)}</option>`).join('')}</select>`+tail('Compare'):
   I.kind==='go'?`${ico('folder')}<b>Go to</b><input id="ibIn" aria-label="Path" style="width:340px" placeholder="~/projects/atlas/src" spellcheck="false">`+tail('Go'):
   `${ico('search')}<b>Find</b><label>Name</label><input id="ibIn" aria-label="File name" placeholder="*.md" spellcheck="false"><label>Contains</label><input id="ibIn2" aria-label="File contents" spellcheck="false"><span class="seg" role="radiogroup" aria-label="Search in">${[['here','Folder','⌘1'],['vol','Volume','⌘2'],['all','All','⌘3']].map(([v,l,k])=>`<button role="radio" aria-checked="${I.where===v}" class="${I.where===v?'on':''}" data-a="ibwhere" data-v="${v}">${l}<kbd>${k}</kbd></button>`).join('')}</span>`+tail('Keep Results');
-  ibUpdate();const f=$('ibIn');f.focus();f.select()}
+  ibUpdate();const f=$('ibIn');f.focus();f.select?.()}
 function ibUpdate(){const I=S.ib,v=$('ibIn').value,N=$('ibN');
   if(I.kind==='mp'){I.q=v;I.re=glob(v);panel(S.active);const n=v?shown(A()).filter(i=>!i.dir&&I.re.test(full(i))).length:0;N.textContent=`${n} file${n===1?'':'s'} match${n===1?'es':''}`;gutter()}
   if(I.kind==='go')N.textContent='';
@@ -350,6 +354,7 @@ function ibOpen(kind,o={}){S.view=false;S.ib={kind,q:'',...o,re:glob(o.q||'')};r
 function ibClose(){S.ib=null;render()}
 function ibCancel(){const I=S.ib;if(I.kind==='find'){const P=S.panels[S.active];P.tabs.pop();P.tab=I.prev}ibClose()}
 function ibRun(){const I=S.ib,t=A(),v=$('ibIn').value.trim();
+  if(I.kind==='cmp'){ibClose();return openCompare()}
   if(I.kind==='mp'){if(v)shown(t).filter(i=>!i.dir&&I.re.test(full(i))).forEach(i=>I.mode==='+'?t.marked.add(i):t.marked.delete(i));return ibClose()}
   if(I.kind==='go'){if(gotoPath(v))return ibClose();$('ibN').textContent='That folder does not exist.';return}
   ibClose();say(`Results stay in this tab. Enter opens a file's folder, and Esc closes the tab.`)}
@@ -518,7 +523,14 @@ web-export|zip|64.2 MB|28 Oct 16:42|61.0 MB|14 Oct 12:25|1`;
 function cpBuild(){return CPDATA.split('\n').map(l=>{const p=l.split('|');if(p.length===2)return{n:p[0],dep:+p[1],dir:true};
   return{n:p[0],e:p[1],l:p[2]?mk(p[0],p[1],p[2],p[3]):null,r:p[4]?mk(p[0],p[1],p[4],p[5]):null,dep:+p[6],diff:p[7]==='diff',tag:p[7]==='clash'?'file and folder':''}})}
 function cpAuto(c){c.rows.forEach(r=>{if(r.dir||r.tag)return;const {l,r:x}=r;r.act=!l?'l':!x?'r':c.by==='size'?(l.b===x.b?'=':l.t>=x.t?'r':'l'):c.by==='content'&&r.diff?'r':l.t===x.t?'=':l.t>x.t?'r':'l'})}
-function startCompare(){press('compare');if(S.mode!=='browse')return;S.view=false;S.msg=null;const c=S.cp={by:'date',only:false,del:false,cur:1,hit:false,rows:cpBuild()};cpAuto(c);S.mode='compare';cpOpts();render()}
+const cmpTabs=()=>S.panels.flatMap(P=>P.tabs).filter(t=>!t.res&&!t.ro);
+// With only the two tabs on show there's nothing to choose. Otherwise Return alone compares those two.
+function startCompare(){press('compare');if(S.mode!=='browse')return;if(S.panels.some(P=>P.tabs.length>1)&&cmpTabs().length>2)return ibOpen('cmp');openCompare()}
+function moveTab(from,i,to,before){const P=S.panels[from],Q=S.panels[to],t=P.tabs[i],cur=P.tabs[P.tab];
+  if(from===to){P.tabs.splice(i,1);P.tabs.splice(before>i?before-1:before,0,t);P.tab=P.tabs.indexOf(cur);return render()}
+  P.tabs.splice(i,1);if(!P.tabs.length)P.tabs.push({...t,marked:new Set,hist:[],fwd:[]});P.tab=Math.min(P.tabs.indexOf(cur)<0?Math.max(i-1,0):P.tabs.indexOf(cur),P.tabs.length-1);
+  Q.tabs.splice(before,0,t);Q.tab=before;S.active=to;render()}
+function openCompare(){S.view=false;S.msg=null;const c=S.cp={by:'date',only:false,del:false,cur:1,hit:false,rows:cpBuild()};cpAuto(c);S.mode='compare';cpOpts();render()}
 const cpVis=()=>{const c=S.cp;return c.rows.filter(r=>r.dir||!c.only||r.act!=='=')};
 function cpOpts(){const c=S.cp;$('cpOpts').innerHTML=`Compare by <span class="seg" role="radiogroup" aria-label="Compare by">${[['date','Name and date','1'],['size','Size','2'],['content','Content','3']].map(([v,l,k])=>`<button role="radio" aria-checked="${c.by===v}" class="${c.by===v?'on':''}" data-a="by" data-v="${v}">${l}<kbd>${k}</kbd></button>`).join('')}</span>
   <span class="seg">${[[false,'All files'],[true,'Differences']].map(([v,l])=>`<button aria-pressed="${c.only===v}" class="${c.only===v?'on':''}" data-a="only" data-v="${v}">${l}<kbd>D</kbd></button>`).join('').replace('All files<kbd>D</kbd>','All files')}</span>
@@ -544,7 +556,7 @@ function cpOnly(on){S.cp.only=on;S.cp.cur=1;cpOpts();cpLists()}
 function runSync(){const c=S.cp,list=c.rows.filter(r=>!r.dir&&'rlx'.includes(r.act||'='));if(!list.length)return;
   startJob({kind:'sync',from:9},list.map(r=>({i:r.l&&r.act!=='l'?r.l:r.r||r.l,row:r})),x=>{const r=x.row;if(r.act==='r')r.r=r.l;else if(r.act==='l')r.l=r.r;else{r.l=r.r=null}r.act='=';r.diff=false;if(!r.l)c.rows.splice(c.rows.indexOf(r),1)})}
 
-const CMDS=[['View beside','F3 or ⌘Y','eye',()=>viewer()],['Edit','F4 or ⌘E','edit',()=>edit()],['Copy to other panel','F5 or ⌘⇧C','copy',()=>begin('copy')],['Move to other panel','F6 or ⌘⇧M','move',()=>begin('move')],['New folder','F7 or ⌘⇧N','plus',()=>newFolder()],['Move to Trash','F8 or ⌘⌫','trash',()=>begin('trash')],['Multi-rename','⌘⇧R','rename',()=>startRename()],['Undo rename','⌘Z','rename',()=>undo()],['Rename this file','⇧F6 or ⌥⌘R','rename',()=>startIR()],['Show actions for this file','⇧F10 or ⌥⌘M','file',()=>cursorMenu()],['Find files','⌘F','search',()=>startFind()],['Mark by pattern','+','check',()=>markBy('+')],['Unmark by pattern','-','check',()=>markBy('-')],['Invert marks','*','check',()=>invert()],['Back','⌘[','up',()=>step('hist','fwd','No earlier folder.')],['Forward','⌘]','up',()=>step('fwd','hist','No later folder.')],['Go to path','⌘⇧G','folder',()=>ibOpen('go')],['Open Terminal here','⌘⇧T','term',()=>terminal()],['Copy path','⌥⌘C','copy',()=>copyPath()],['Compare and sync','⌘⇧D','compare',()=>startCompare()],['Compress to other panel','⌘⇧P','archive',()=>begin('compress')],['Extract to other panel','⌘⇧U','unpack',()=>begin('extract')],['Show or hide hidden files','⌘⇧.','eye',()=>toggleHidden()],['Mark all','⌘A','check',()=>markAll()],['Next tab','⌘⇧]','folder',()=>nextTab(1)],['Previous tab','⌘⇧[','folder',()=>nextTab(-1)],['Sort by name','⌃⌘1','up',()=>sortBy('n')],['Sort by extension','⌃⌘2','up',()=>sortBy('e')],['Sort by size','⌃⌘3','up',()=>sortBy('s')],['Sort by modified','⌃⌘4','up',()=>sortBy('d')],['Go to command line','⌘L','search',()=>$('cl').focus()],['Switch light or dark','⌘⇧L','eye',()=>theme()]];
+const CMDS=[['View beside','F3 or ⌘Y','eye',()=>viewer()],['Edit','F4 or ⌘E','edit',()=>edit()],['Copy to other panel','F5 or ⌘⇧C','copy',()=>begin('copy')],['Move to other panel','F6 or ⌘⇧M','move',()=>begin('move')],['New folder','F7 or ⌘⇧N','plus',()=>newFolder()],['Move to Trash','F8 or ⌘⌫','trash',()=>begin('trash')],['Multi-rename','⌘⇧R','rename',()=>startRename()],['Undo rename','⌘Z','rename',()=>undo()],['Rename this file','⇧F6 or ⌥⌘R','rename',()=>startIR()],['Show actions for this file','⇧F10 or ⌥⌘M','file',()=>cursorMenu()],['Find files','⌘F','search',()=>startFind()],['Mark by pattern','+','check',()=>markBy('+')],['Unmark by pattern','-','check',()=>markBy('-')],['Invert marks','*','check',()=>invert()],['Back','⌘[','up',()=>step('hist','fwd','No earlier folder.')],['Forward','⌘]','up',()=>step('fwd','hist','No later folder.')],['Go to path','⌘⇧G','folder',()=>ibOpen('go')],['Open Terminal here','⌘⇧T','term',()=>terminal()],['Copy path','⌥⌘C','copy',()=>copyPath()],['Compare and sync','⌘⇧D','compare',()=>startCompare()],['Compress to other panel','⌘⇧P','archive',()=>begin('compress')],['Extract to other panel','⌘⇧U','unpack',()=>begin('extract')],['Show or hide hidden files','⌘⇧.','eye',()=>toggleHidden()],['Mark all','⌘A','check',()=>markAll()],['Move tab to other panel','⌥⌘T','move',()=>{const P=S.panels[S.active],o=1-S.active;moveTab(S.active,P.tab,o,S.panels[o].tab+1)}],['Next tab','⌘⇧]','folder',()=>nextTab(1)],['Previous tab','⌘⇧[','folder',()=>nextTab(-1)],['Sort by name','⌃⌘1','up',()=>sortBy('n')],['Sort by extension','⌃⌘2','up',()=>sortBy('e')],['Sort by size','⌃⌘3','up',()=>sortBy('s')],['Sort by modified','⌃⌘4','up',()=>sortBy('d')],['Go to command line','⌘L','search',()=>$('cl').focus()],['Switch light or dark','⌘⇧L','eye',()=>theme()]];
 function cpDiff(on){const r=cpVis()[S.cp.cur];if(on&&(!r||r.dir||!r.l||!r.r))return;S.cp.diff=on;$('diff').classList.toggle('on',on);if(on)$('diffBody').textContent=`${full(r.l)}\n\n  ## Fixed            │  ## Fixed\n  - Update feed      │  - Sync on network\n                     │  - Update feed\n\nSample lines. Changes stay neutral, because nothing is copied or removed here.`}
 function palette(on){S.pal=on?{q:'',i:0}:null;$('pal').classList.toggle('on',on);if(on){$('palIn').value='';palList();$('palIn').focus()}}
 const palHits=()=>CMDS.filter(c=>(S.mode==='browse'&&!S.ib||c[0].startsWith('Switch'))&&c[0].toLowerCase().includes(S.pal.q));
@@ -571,7 +583,12 @@ const ACT={back:d=>{S.active=+d.p;step('hist','fwd','No earlier folder.')},forwa
   conf:d=>{S.op.conf=d.v;render()},tab:d=>{S.panels[d.p].tab=+d.v;S.active=+d.p;render()},by:d=>{S.cp.by=d.v;cpAuto(S.cp);cpOpts();cpLists()},only:d=>cpOnly(d.v==='true'),
   sort:d=>{S.active=+d.p;sortBy(d.v)},palrun:d=>palRun(+d.v),cprow:d=>{S.cp.cur=+d.v;cpLists()},
   ibwhere:d=>ibWhere(d.v),
+  tabnew:d=>{const P=S.panels[+d.p];P.tabs.splice(P.tab+1,0,{...P.tabs[P.tab],marked:new Set,hist:[],fwd:[]});P.tab++;S.active=+d.p;render()},
+  tabclose:d=>{const P=S.panels[+d.p];if(P.tabs.length<2)return;const i=+d.v;P.tabs.splice(i,1);if(i<=P.tab)P.tab=Math.max(P.tab-1,0);render()},
   cplane:d=>{S.cp.cur=+d.v;const r=cpVis()[+d.v];if(r&&!r.dir)cpSet(r.act==='r'&&r.r?'l':r.l?'r':'l')}};
+document.addEventListener('dragstart',e=>{const b=e.target.closest?.('.tabs [draggable]');if(b)S.tabDrag=[+b.dataset.p,+b.dataset.v]});
+document.addEventListener('dragover',e=>{if(S.tabDrag&&e.target.closest?.('.tabs'))e.preventDefault()});
+document.addEventListener('drop',e=>{const b=e.target.closest?.('.tabs [data-p]');if(!S.tabDrag||!b)return;e.preventDefault();const [f,i]=S.tabDrag,to=+b.dataset.p;S.tabDrag=null;moveTab(f,i,to,b.classList.contains('tnew')?S.panels[to].tabs.length:+b.dataset.v)});
 document.addEventListener('click',e=>{if(S.menu&&!e.target.closest('#menu'))closeMenu();if(S.ib&&!e.target.closest('#bar'))return;const a=e.target.closest('[data-a]');if(a&&a.dataset.a==='row')return rowClick(a,e);if(a&&ACT[a.dataset.a]){ACT[a.dataset.a](a.dataset);if(a.tagName==='BUTTON')a.blur?.()}});
 function rowClick(a,e){const p=+a.dataset.p,t=tab(p);if(S.mode!=='browse')return;S.active=p;const r=rowsOf(p)[+a.dataset.i];if(!r||!real(r))return;t.cur=r.i;if(e.metaKey&&!r.i.up)t.marked.has(r.i)?t.marked.delete(r.i):t.marked.add(r.i);render()}
 document.addEventListener('contextmenu',e=>{const a=e.target.closest('[data-a=row]');if(!a||S.mode!=='browse'||S.ib)return;e.preventDefault();rowClick(a,{});if(A().cur&&!A().cur.up)menuFor(e.clientX,e.clientY)});
@@ -584,6 +601,7 @@ addEventListener('resize',render);
 addEventListener('keydown',e=>{
   const k=e.key,c=e.metaKey,sh=e.shiftKey,lk=k.toLowerCase(),stop=()=>e.preventDefault(),inField=e.target.matches('input,select');
   if(c&&lk==='k'){stop();return palette(!S.pal)}
+  if(c&&e.altKey&&S.mode==='browse'&&!S.ib&&(lk==='t'||k==='['||k===']')){stop();const P=S.panels[S.active],o=1-S.active;return lk==='t'?moveTab(S.active,P.tab,o,S.panels[o].tab+1):moveTab(S.active,P.tab,S.active,Math.max(P.tab+(k===']'?2:-1),0))}
   if(c&&S.ib?.kind==='find'&&'123'.includes(k)){stop();return ibWhere(['here','vol','all'][k-1])}
   if(c&&sh&&lk==='l'){stop();return theme()}
   if(S.menu){const m=S.menu,n=m.acts.length;if(k==='Escape'){stop();closeMenu()}else if(k==='ArrowDown'||k==='ArrowUp'){stop();m.i=(m.i+(k==='ArrowDown'?1:n-1))%n;drawMenu()}else if(k==='Enter'){stop();menuRun(m.i)}return}

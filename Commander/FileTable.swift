@@ -303,8 +303,11 @@ struct FileTable: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: column.identifier, owner: nil) as? FileCell ?? FileCell(kind)
             cell.identifier = column.identifier
             let style = view.flatMap { RowStyle($0.workspace.panels[$0.index], rows[row]) }
-            let isResults = view?.workspace.panels[view?.index ?? 0].isResults ?? false
-            cell.show(rows[row], isCursor: row == cursor && isActive, isMarked: isMarked(rows[row]), style: style, isResults: isResults)
+            let panel = view?.workspace.panels[view?.index ?? 0]
+            cell.show(
+                rows[row], isCursor: row == cursor && isActive, isMarked: isMarked(rows[row]), style: style,
+                isResults: panel?.isResults ?? false, isInsideArchive: panel?.isInsideArchive ?? false
+            )
             return cell
         }
     }
@@ -600,6 +603,12 @@ final class KeyTable: NSTableView {
         if wantsFocus { takeFocus() }
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        FileIcons.reset()
+        reloadData()
+    }
+
     /// A results tab's rows come from many folders, so the extension's column gives way to a wider one.
     func showFolderColumn(_ isShown: Bool) {
         let width = isShown ? FileTable.folderWidth : 96
@@ -779,6 +788,8 @@ private final class FileCell: NSView {
     private let label = NSTextField(labelWithString: "")
     private let icon = NSImageView()
     private let dot = NSImageView()
+    /// What the icon on show belongs to, so one that arrives late can't land on a reused cell.
+    private var iconKey: String?
 
     init(_ kind: Column) {
         self.kind = kind
@@ -806,7 +817,7 @@ private final class FileCell: NSView {
         switch kind {
         case .name:
             dot.frame = NSRect(x: 8, y: 7, width: 6, height: 6)
-            icon.frame = NSRect(x: 20, y: 3.5, width: 13, height: 13)
+            icon.frame = NSRect(x: 19, y: 2, width: 16, height: 16)
             label.frame = NSRect(x: 39, y: y, width: max(bounds.width - 39, 0), height: height)
         case .modified:
             label.frame = NSRect(x: 0, y: y, width: bounds.width - 8, height: height)
@@ -815,7 +826,7 @@ private final class FileCell: NSView {
         }
     }
 
-    func show(_ entry: FileEntry, isCursor: Bool, isMarked: Bool, style: RowStyle?, isResults: Bool) {
+    func show(_ entry: FileEntry, isCursor: Bool, isMarked: Bool, style: RowStyle?, isResults: Bool, isInsideArchive: Bool) {
         let isHidden = entry.isHidden && !entry.isParent
         let ink = isCursor ? Palette.cursorInk : style?.ink
             ?? (isMarked || (kind == .name && !isHidden) ? Palette.ink : Palette.dim)
@@ -834,21 +845,38 @@ private final class FileCell: NSView {
             }
             dot.isHidden = !isMarked
             dot.contentTintColor = ink
-            icon.image = style?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: style?.tag) }
-                ?? Self.symbol(for: entry)
+            iconKey = nil
+            icon.alphaValue = isHidden && style == nil ? 0.5 : 1
             icon.contentTintColor = style == nil && !isCursor ? Palette.dim : ink
+            // A preview row states the action, so the action's colour is the only one on it.
+            if let symbol = style?.symbol {
+                icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: style?.tag)
+            } else if entry.isParent {
+                icon.image = NSImage(systemSymbolName: "arrow.up", accessibilityDescription: nil)
+            } else {
+                showFileIcon(entry, isInsideArchive: isInsideArchive)
+            }
         case .ext:
             label.lineBreakMode = isResults ? .byTruncatingHead : .byTruncatingTail
-            label.stringValue = isResults ? (entry.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath : entry.ext
+            label.stringValue = isResults ? Places.folderText(of: entry.url) : entry.ext
         case .size: label.stringValue = entry.size.map(FileSize.format) ?? ""
         case .modified: label.stringValue = entry.modified.map(RowFormat.date) ?? ""
         }
     }
 
-    private static func symbol(for entry: FileEntry) -> NSImage? {
-        let name = entry.isParent ? "arrow.up" : entry.isSymlink ? "arrow.up.forward.square"
-            : entry.opensAsFolder ? "folder.fill" : "doc"
-        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    private func showFileIcon(_ entry: FileEntry, isInsideArchive: Bool) {
+        let key = FileIcons.key(entry.url, entry.modified)
+        if let own = FileIcons.ownIcon(key) {
+            icon.image = own
+            return
+        }
+        icon.image = FileIcons.typeIcon(of: entry.fileName, isFolder: entry.opensAsFolder)
+        // A path through an archive isn't a file anything else can look at.
+        guard !isInsideArchive else { return }
+        iconKey = key
+        FileIcons.load(entry.url, key: key) { [weak self] image in
+            if self?.iconKey == key { self?.icon.image = image }
+        }
     }
 
 }

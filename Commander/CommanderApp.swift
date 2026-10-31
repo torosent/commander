@@ -140,6 +140,15 @@ private struct BrowseCommands: Commands {
             Divider()
             Button("Next Tab") { panel.nextTab(by: 1) }.keyboardShortcut("]", modifiers: [.command, .shift])
             Button("Previous Tab") { panel.nextTab(by: -1) }.keyboardShortcut("[", modifiers: [.command, .shift])
+            Button("Move Tab to Other Panel", action: workspace.moveTabToOtherPanel)
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(!workspace.canMoveTabs)
+            Button("Move Tab Left") { workspace.shiftTab(by: -1) }
+                .keyboardShortcut("[", modifiers: [.command, .option])
+                .disabled(!workspace.canMoveTabs)
+            Button("Move Tab Right") { workspace.shiftTab(by: 1) }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                .disabled(!workspace.canMoveTabs)
         }
         CommandMenu("Mark") {
             Button("Mark or Unmark") { panel.toggleMark() }

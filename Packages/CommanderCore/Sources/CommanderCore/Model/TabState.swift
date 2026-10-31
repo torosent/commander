@@ -23,6 +23,8 @@ public struct TabState: Sendable {
         public var results: FindResults?
     }
 
+    /// Stays with the tab wherever it moves, unlike its position in a panel.
+    public let id = UUID()
     public private(set) var location: URL
     public private(set) var back: [Stop] = []
     public private(set) var forward: [Stop] = []

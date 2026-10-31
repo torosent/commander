@@ -733,7 +733,7 @@ private func row(_ rows: [CompareRow], _ name: String) throws -> CompareRow {
         await app.panels[1].loaded()
         app.beginCompare()
         #expect(app.compareSession == nil)
-        #expect(app.message == "Both panels show the same folder.")
+        #expect(app.message == "Both show the same folder.")
     }
 
     @Test func comparingAFolderWithOneInsideItIsRefused() async throws {

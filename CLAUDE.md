@@ -44,7 +44,7 @@ The full list is under "Data safety rules" in PLAN.md.
 
 ## Rules for the UI
 
-- Colour means what happens: green copies or creates, yellow moves, red removes or overwrites. Don't use those colours for anything else, such as success or validation messages, and always pair them with an icon or arrow.
+- Colour means what happens: green copies or creates, yellow moves, red removes or overwrites. A file's own icon is the one exception, because its colours belong to the file and mean nothing. Don't use those colours for anything else, such as success or validation messages, and always pair them with an icon or arrow.
 - Keep it dense. Rows are 20px, on one column grid shared by both panels, and panels resize in whole rows.
 - Show each fact once.
 - Every action needs a keyboard route and a command palette entry.

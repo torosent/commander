@@ -24,7 +24,7 @@ The working design is [design/commander.html](design/commander.html), a clickabl
 
 ## v1 scope
 
-**In:** dual panels, tabs, sorting, marking, mark by pattern, invert, quick search, hidden files, history, go to path, viewer, copy, move, Trash, inline rename, multi-rename, command palette, command line, Open Terminal here, copy path, right-click menu with Open With, compress, uncompress, archives as read-only folders, compare and sync, Find Files, settings, native menu bar.
+**In:** dual panels, tabs, sorting, marking, mark by pattern, invert, quick search, hidden files, history, go to path, viewer, copy, move, Trash, inline rename, multi-rename, command palette, command line, Open Terminal here, copy path, right-click menu with Open With, compress, uncompress, archives as read-only folders, compare and sync, Find Files, real file icons, tabs that move between panes, settings, native menu bar.
 
 **Out of v1:**
 - FTP/SFTP
@@ -42,7 +42,7 @@ The working design is [design/commander.html](design/commander.html), a clickabl
 
 ## Design rules
 
-- **Colour means what happens.** Green copies or creates, yellow moves, red removes or overwrites. Nothing else uses those colours. Each is always paired with an icon or arrow.
+- **Colour means what happens.** Green copies or creates, yellow moves, red removes or overwrites. Nothing else uses those colours, apart from a file's own icon, whose colours belong to the file. Each is always paired with an icon or arrow.
 - **The consequence shows first.** Bulk work appears as preview rows in the destination, and the preview scrolls to any conflict.
 - **Density is the point.** 20px rows on one column grid shared by both panels. Panels resize in whole rows and never clip one.
 - **Each fact appears once.** Marked count and size live in the key column, totals in the panel footer, the path in the path bar.
@@ -109,6 +109,9 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | Right-click menu | ⇧F10 or ⌥⌘M |
 | New / close tab | ⌘T / ⌘W |
 | Next / previous tab | ⌘⇧] / ⌘⇧[ |
+| Move tab to other panel | ⌥⌘T |
+| Move tab left / right | ⌥⌘[ / ⌥⌘] |
+| Choosing tabs to compare: first, second | ↑ ↓, ← → |
 | Sort by name, extension, size, modified | ⌃⌘1 to ⌃⌘4 |
 | Undo rename | ⌘Z |
 
@@ -318,7 +321,7 @@ Decided in M7:
 
 **Exit:** the same search finds the same files on an indexed internal volume and an unindexed external one.
 
-**Status:** code complete, with 426 tests passing, repeated runs of the whole suite staying clean. Tried in the running app: name and content search, folder and volume scope, the results tab and its Folder column, Keep Results, Return to the folder and Back, closing with Esc, Cancel, and a search of the whole startup disk, with a test showing Spotlight answers from the top of the disk. The exit test is covered by comparing a disk image with a temp folder. Not yet tried by hand: ⌘1, ⌘2 and ⌘3, All Volumes, a real unindexed external drive, stopping a long search with Esc, and copy and compress from results with real keys.
+**Status:** code complete, with 426 tests passing, repeated runs of the whole suite staying clean. Tried in the running app: name and content search, folder and volume scope, the results tab and its Folder column, Keep Results, Return to the folder and Back, closing with Esc, Cancel, and a search of the whole startup disk, with a test showing Spotlight answers from the top of the disk. The exit test is covered by comparing a disk image with a temp folder. ⌘1 and ⌘3 were tried in M8.5. Not yet tried by hand: All Volumes, a real unindexed external drive, stopping a long search with Esc, and copy and compress from results with real keys.
 
 Decided in M8:
 
@@ -331,6 +334,57 @@ Decided in M8:
 - Results arrive in the order found and are sorted once the search ends, so rows don't shift under the cursor.
 - Move, Trash, rename and new folder need the real folder, and nothing can land in a results tab. Dropping or pasting into one is refused. Dragging out of one still follows the usual move or copy rule.
 - A results tab reopens as its starting folder after a relaunch.
+
+### M8.5: Icons and tabs
+
+**Real file icons**
+
+- [x] `FileIcons` in the app target, since the core has no UI imports
+- [x] Icons by type from `NSWorkspace.icon(for:)`, cached by extension, so listing a folder reads nothing more from disk
+- [x] Per-file icons for apps, other packages and custom folder icons, loaded off the main thread and cached by path, with the type's icon showing until they land
+- [x] Links keep the system's arrow badge, and files inside archives use their type's icon
+- [x] Icons at 16px in the existing 19px gap, so the name column doesn't move and rows stay 20px
+- [x] The same icons in results tabs, multi-rename and compare
+- [x] Hidden files dim their icon. `..` keeps its arrow
+- [x] Preview rows keep the action's plus, alert or trash icon, so the action colour stands alone there
+- [x] Update the colour rule in CLAUDE.md, DESIGN.md and this plan: green, yellow and red in a file's own icon come from that file and mean nothing
+
+**Tabs**
+
+- [x] Give each tab a stable id, because the strip is keyed by position today and that breaks once tabs move
+- [x] A + button on the strip, and × on the selected or hovered tab. No × when a pane has one tab
+- [x] Drag to reorder within a pane
+- [x] Drag to the other pane. Its folder, history, sort, cursor, marks and results go with it, and that pane becomes active
+- [x] Moving a pane's only tab leaves a new tab on the same folder, because a pane can't be empty
+- [x] Keep moving a tab keyboard-first: ⌥⌘T to the other pane, ⌥⌘[ and ⌥⌘] to reorder, each with a menu item, a palette entry and a VoiceOver action
+- [x] No tab moves while a preview, a bar, multi-rename or compare is open, because those hold on to their panel
+- [x] A results tab keeps filling after a move, so a search finds its tab in either pane
+- [x] Many tabs shrink to a minimum width and then scroll, so the strip can't push the panel wider
+
+**Compare any two tabs**
+
+- [x] `beginCompare` takes two folders rather than reading the panels, and keeps its checks: same folder, one inside the other, archives and results
+- [x] With one tab in each pane, ⌘⇧D opens at once, as it does now
+- [x] With more tabs, ⌘⇧D opens a status bar mode with both choices filled in from the visible tabs, so Return gives today's result and picking another tab takes one extra step
+- [x] Two tabs in the same pane can be compared. The first is the left side of the compare screen
+- [x] Sync still runs only from the compare screen, and it refreshes whichever tabs show those folders
+
+**Also**
+
+- [x] Prototype: + and ×, tab dragging, the compare choice, and sample coloured icons
+- [x] Tests against real files for moving and reordering, including marks, history, a running search and the refused cases
+
+**Exit:** a folder of mixed files shows the same icons as Finder with no slowdown at 100k files, a tab with marks and history can be moved across and back with only the keyboard, and two tabs in one pane can be compared and synced.
+
+**Status:** code complete, with 457 tests passing. Tried in the running app with real input: icons in a mixed folder and in home, the + and × buttons, dragging a tab to the other panel, reordering it by either half of a tab, ⌥⌘T, ⌥⌘[, long titles truncating, the compare choice with its arrow keys and Return, icons and empty sides in compare, and a 100,000-file folder paging end to end at once. Moving and comparing with marks, history and a running search are covered by tests against real files. Not yet tried by hand: icons in multi-rename, ⌥⌘], a live theme change, and VoiceOver on the new tab actions. Icons were judged by eye rather than compared with Finder file by file.
+
+Decided in M8.5:
+
+- A row draws its type's icon at once, which reads nothing from disk, and its own icon arrives from a background queue. The newest 512 requests wait, newest first and each file once, which holds every row of two tall panels while scrolling past thousands doesn't build up work.
+- A tab is a plain drag surface rather than a Button, which would take the mouse-down and stop the drag.
+- Dragged tabs use a private type, `dev.commander.tab`, declared in `Commander-Info.plist` and visible only inside the app, so text fields and other apps can't take one. The system won't match an undeclared type to a drop.
+- Dropping on a tab's left half lands before it, and on its right half after it.
+- Sort keys swap between Ext and Folder as a tab moves between a folder and results, so a tab is never sorted by a column it doesn't show.
 
 ### M9: Release
 

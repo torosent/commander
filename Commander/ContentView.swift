@@ -105,6 +105,8 @@ private struct StatusBar: View {
                 RenameBar(workspace: workspace, session: session)
             } else if let session = workspace.compareSession, workspace.jobs.current == nil {
                 CompareBar(workspace: workspace, session: session)
+            } else if let choice = workspace.compareChoice {
+                CompareChoiceBar(workspace: workspace, choice: choice)
             } else if let pending = workspace.pending, let draft = pending.archive {
                 CompressBar(workspace: workspace, pending: pending, draft: draft)
             } else if let pending = workspace.pending {
@@ -364,6 +366,68 @@ private struct PatternEntryBar: View {
             text = bar.text
             isFocused = true
         }
+    }
+}
+
+/// Which two tabs to compare, starting from the two on show. Return alone compares those.
+private struct CompareChoiceBar: View {
+    let workspace: Workspace
+    let choice: CompareChoice
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "rectangle.split.2x1").foregroundStyle(Theme.ink).accessibilityHidden(true)
+            Text("Compare").fontWeight(.semibold).foregroundStyle(Theme.ink)
+            picker("First folder", selection: Binding(get: { choice.first }, set: { update(first: $0) }))
+            Text("with")
+            picker("Second folder", selection: Binding(get: { choice.second }, set: { update(second: $0) }))
+            Text(workspace.message ?? "↑↓ first · ←→ second").lineLimit(1)
+                .foregroundStyle(workspace.message == nil ? Theme.dim : Theme.ink)
+            Spacer()
+            Button("Cancel  esc", action: workspace.cancelCompareChoice)
+            Button("Compare  ↩", action: workspace.runCompareChoice)
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isFocused)
+        .onKeyPress(phases: .down, action: handle)
+        // The table redraws in the same pass, and SwiftUI would undo a focus change made during it.
+        .onAppear { DispatchQueue.main.async { isFocused = true } }
+    }
+
+    private func picker(_ title: String, selection: Binding<UUID>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(workspace.comparableTabs, id: \.id) { tab in
+                Text(label(tab)).tag(tab.id)
+            }
+        }
+        .labelsHidden()
+        .frame(maxWidth: 240)
+    }
+
+    /// With the path, because two tabs can show folders of the same name.
+    private func label(_ tab: TabState) -> String {
+        "\(tab.title)  \(Places.folderText(of: tab.location))"
+    }
+
+    private func update(first: UUID? = nil, second: UUID? = nil) {
+        workspace.chooseCompare(CompareChoice(first: first ?? choice.first, second: second ?? choice.second))
+    }
+
+    private func handle(_ press: KeyPress) -> KeyPress.Result {
+        guard press.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }
+        switch press.key {
+        case .upArrow: workspace.stepCompare(first: true, by: -1)
+        case .downArrow: workspace.stepCompare(first: true, by: 1)
+        case .leftArrow: workspace.stepCompare(first: false, by: -1)
+        case .rightArrow: workspace.stepCompare(first: false, by: 1)
+        case .return: workspace.runCompareChoice()
+        case .escape: workspace.cancelCompareChoice()
+        default: return .ignored
+        }
+        return .handled
     }
 }
 

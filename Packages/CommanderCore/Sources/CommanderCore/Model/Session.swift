@@ -18,7 +18,8 @@ public struct TabSession: Codable, Equatable, Sendable {
 
     init(_ tab: TabState) {
         path = tab.location.path
-        sort = tab.sort
+        // A results tab comes back as a folder.
+        sort = tab.sort.forFolders
         cursor = tab.savedCursor?.path
     }
 

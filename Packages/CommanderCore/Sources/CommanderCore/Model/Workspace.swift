@@ -26,6 +26,8 @@ public final class Workspace {
     public private(set) var compareSession: CompareSession?
     /// The latest search. Its bar can close while the search runs on.
     public private(set) var find: FindSession?
+    /// The two tabs about to be compared, while they're being chosen.
+    public private(set) var compareChoice: CompareChoice?
     public private(set) var isPaletteOpen = false
     /// The command line command still running.
     public private(set) var runningCommand: String?
@@ -87,7 +89,7 @@ public final class Workspace {
     /// True while a bar or an inline edit is open, which another bar shouldn't open on top of.
     /// The keys reach these even when `isTyping` holds the menus back.
     private var hasOpenField: Bool {
-        patternBar != nil || isGoingToPath || isFindBarOpen || panels.contains { $0.edit != nil }
+        patternBar != nil || isGoingToPath || isFindBarOpen || compareChoice != nil || panels.contains { $0.edit != nil }
     }
 
     public var isFindBarOpen: Bool { find?.isBarOpen == true }
@@ -173,6 +175,7 @@ public final class Workspace {
         if let pending, pending.source === panel || pending.destination === panel { cancelOperation() }
         if renameSession?.panel === panel { cancelRename() }
         if compareSession != nil { closeCompare() }
+        if compareChoice != nil { cancelCompareChoice() }
         if let find, find.isBarOpen, find.panel === panel, panel.tab.results?.id != find.id {
             find.closeBar()
             // Nothing was searched for, so there's nothing to keep.
@@ -364,20 +367,77 @@ public final class Workspace {
 
     // MARK: Compare and sync
 
-    /// Compares the two panels' folders, left against right.
+    /// Compares the two tabs on show. With other tabs to choose from, it asks first, starting from those two.
     public func beginCompare() {
         guard pending == nil, planning == nil, renameSession == nil, compareSession == nil, !hasOpenField else { return }
-        let (left, right) = (panels[0], panels[1])
-        guard !left.isInsideArchive, !right.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
-        guard !left.isResults, !right.isResults else { return say("Compare needs a folder in each panel.") }
-        guard let one = FileNames.realPath(left.location), let two = FileNames.realPath(right.location) else {
-            return say("One of the folders can't be read.")
+        let (left, right) = (panels[0].tab, panels[1].tab)
+        let tabs = comparableTabs
+        guard panels.contains(where: { $0.tabs.count > 1 }), tabs.count > 1 else {
+            compare(left, right)
+            return
         }
-        guard one != two else { return say("Both panels show the same folder.") }
+        let first = tabs.contains { $0.id == left.id } ? left.id : tabs[0].id
+        let second = tabs.contains { $0.id == right.id && right.id != first } ? right.id : tabs.first { $0.id != first }?.id
+        compareChoice = second.map { CompareChoice(first: first, second: $0) }
+    }
+
+    /// Every tab with a real folder, left panel first.
+    public var comparableTabs: [TabState] {
+        panels.flatMap(\.tabs).filter { $0.results == nil && ArchivePath.split($0.location) == nil }
+    }
+
+    public func chooseCompare(_ choice: CompareChoice) {
+        compareChoice = choice
+    }
+
+    /// Steps one side of the choice through the tabs, for the keyboard.
+    public func stepCompare(first isFirst: Bool, by delta: Int) {
+        guard var choice = compareChoice else { return }
+        let tabs = comparableTabs
+        guard let index = tabs.firstIndex(where: { $0.id == (isFirst ? choice.first : choice.second) }) else { return }
+        let next = tabs[(index + delta + tabs.count) % tabs.count].id
+        if isFirst { choice.first = next } else { choice.second = next }
+        compareChoice = choice
+    }
+
+    public func cancelCompareChoice() {
+        compareChoice = nil
+        returnFocus()
+    }
+
+    /// A tab that's gone can't be compared, and one not on show closes without the panel changing folder.
+    func tabClosed(_ id: UUID) {
+        if compareChoice?.first == id || compareChoice?.second == id { cancelCompareChoice() }
+    }
+
+    /// Stays open if the two can't be compared, with the reason in the bar, so another tab can be picked.
+    public func runCompareChoice() {
+        guard let choice = compareChoice else { return }
+        let tabs = comparableTabs
+        guard let first = tabs.first(where: { $0.id == choice.first }), let second = tabs.first(where: { $0.id == choice.second }) else { return }
+        if compare(first, second) { compareChoice = nil }
+    }
+
+    /// Takes tabs rather than panels, so any two can be compared, even two in the same panel.
+    @discardableResult
+    private func compare(_ first: TabState, _ second: TabState) -> Bool {
+        func refuse(_ text: String) -> Bool {
+            say(text)
+            return false
+        }
+        guard ArchivePath.split(first.location) == nil, ArchivePath.split(second.location) == nil else {
+            return refuse(OperationRefusal.readOnlyArchive.message)
+        }
+        guard first.results == nil, second.results == nil else { return refuse("Compare needs two folders.") }
+        guard let one = FileNames.realPath(first.location), let two = FileNames.realPath(second.location) else {
+            return refuse("One of the folders can't be read.")
+        }
+        guard one != two else { return refuse("Both show the same folder.") }
         // A sync between them would copy a folder into itself. The root is inside nothing but holds everything.
-        guard one != "/", two != "/", !one.hasPrefix(two + "/"), !two.hasPrefix(one + "/") else { return say("One panel's folder is inside the other's.") }
+        guard one != "/", two != "/", !one.hasPrefix(two + "/"), !two.hasPrefix(one + "/") else { return refuse("One folder is inside the other.") }
         if viewer != nil { closeViewer() }
-        compareSession = CompareSession(left: left.location, right: right.location, showHidden: showHidden)
+        compareSession = CompareSession(left: first.location, right: second.location, showHidden: showHidden)
+        return true
     }
 
     public func closeCompare() {
@@ -390,6 +450,39 @@ public final class Workspace {
     public func runSync() {
         guard let session = compareSession, session.canSync, jobs.current == nil else { return }
         jobs.add(session.preview, choice: .replace)
+    }
+
+    // MARK: Moving tabs
+
+    /// A preview, a bar or a screen is tied to the panel it opened on, so tabs stay put while one is open.
+    public var canMoveTabs: Bool {
+        pending == nil && planning == nil && renameSession == nil && compareSession == nil && !hasOpenField
+    }
+
+    /// Moves a tab to sit before `position` in a panel. In the other panel, it's shown and that panel takes over.
+    public func moveTab(_ id: UUID, toPanel index: Int, before position: Int) {
+        guard canMoveTabs else { return say("Finish what's open first, then move the tab.") }
+        guard let source = panels.first(where: { panel in panel.tabs.contains { $0.id == id } }) else { return }
+        let target = panels[index]
+        guard source !== target else { return source.reorderTab(id, before: position) }
+        // The viewer takes the other panel's place, so a tab moving there wouldn't be seen.
+        if viewer != nil { closeViewer() }
+        guard let tab = source.giveUpTab(id) else { return }
+        // A search finds its tab through this, and carries on filling it.
+        if let results = tab.results, find?.id == results.id { find?.panel = target }
+        target.take(tab, before: position)
+        activate(index)
+        returnFocus()
+    }
+
+    public func moveTabToOtherPanel() {
+        let other = 1 - activeIndex
+        moveTab(active.tab.id, toPanel: other, before: panels[other].tabIndex + 1)
+    }
+
+    /// Moves the current tab along its strip.
+    public func shiftTab(by delta: Int) {
+        moveTab(active.tab.id, toPanel: activeIndex, before: active.tabIndex + (delta > 0 ? delta + 1 : delta))
     }
 
     // MARK: Find Files
@@ -1165,8 +1258,24 @@ public final class Panel {
 
     public func closeTab() {
         guard tabs.count > 1 else { return }
-        tabs.remove(at: tabIndex)
-        showTab(min(tabIndex, tabs.count - 1))
+        removeTab(at: tabIndex, thenShow: tabIndex)
+    }
+
+    /// Takes a tab out. If it was on show, `next` is shown in its place.
+    private func removeTab(at index: Int, thenShow next: Int) {
+        let closed = tabs.remove(at: index).id
+        if index == tabIndex {
+            showTab(min(next, tabs.count - 1))
+        } else if index < tabIndex {
+            tabIndex -= 1
+        }
+        workspace?.tabClosed(closed)
+    }
+
+    /// For a tab's own close button, which needn't be the tab on show.
+    public func closeTab(id: UUID) {
+        guard tabs.count > 1, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        removeTab(at: index, thenShow: index)
     }
 
     public func selectTab(_ index: Int) {
@@ -1240,12 +1349,7 @@ public final class Panel {
             if index == tabIndex { show(cursor: nil) }
             return
         }
-        tabs.remove(at: index)
-        if index == tabIndex {
-            showTab(max(index - 1, 0))
-        } else if index < tabIndex {
-            tabIndex -= 1
-        }
+        removeTab(at: index, thenShow: max(index - 1, 0))
     }
 
     /// What the footer should add about the search, if anything.
@@ -1255,6 +1359,39 @@ public final class Panel {
         if results.outcome.reachedLimit { return "Stopped at \(FileFinder.limit.formatted()) results" }
         if !results.isComplete { return "Stopped" }
         return results.outcome.unreadable > 0 ? "\(results.outcome.unreadable.formatted()) couldn't be read" : nil
+    }
+
+    // MARK: Moving tabs
+
+    func reorderTab(_ id: UUID, before position: Int) {
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let selected = tab.id
+        let moved = tabs.remove(at: from)
+        tabs.insert(moved, at: min(max(position > from ? position - 1 : position, 0), tabs.count))
+        tabIndex = tabs.firstIndex { $0.id == selected } ?? 0
+    }
+
+    /// Lets go of a tab. A panel can't be empty, so its only tab leaves a new one on the same folder.
+    func giveUpTab(_ id: UUID) -> TabState? {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        if index == tabIndex { tabs[index].savedCursor = cursorEntry?.url }
+        let leaving = tabs[index]
+        if tabs.count == 1 {
+            var fresh = TabState(location: leaving.location)
+            fresh.sort = leaving.sort.forFolders
+            tabs = [fresh]
+            showTab(0)
+        } else {
+            removeTab(at: index, thenShow: max(index - 1, 0))
+        }
+        return leaving
+    }
+
+    func take(_ arriving: TabState, before position: Int) {
+        tabs[tabIndex].savedCursor = cursorEntry?.url
+        let index = min(max(position, 0), tabs.count)
+        tabs.insert(arriving, at: index)
+        showTab(index)
     }
 
     public func nextTab(by delta: Int) {

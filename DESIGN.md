@@ -275,7 +275,7 @@ A warm graphite neutral range carries three saturated action colours, and each a
 
 ### Named Rules
 
-**The Press Means Rule.** Green copies or creates, yellow moves, red removes or overwrites. These colours mean nothing else anywhere in the interface.
+**The Press Means Rule.** Green copies or creates, yellow moves, red removes or overwrites. These colours mean nothing else anywhere in the interface. A file's own icon is the one exception: its colours belong to the file and mean nothing. A preview row swaps it for the action's icon, so the action's colour is the only one on that row.
 
 **The Ink Verdict Rule.** Success text and validation messages are ink, not colour. A finished job, a bad name and a missing path all read in the neutral inks, and an error row is a hairline-toned band with bold ink.
 
@@ -358,12 +358,12 @@ The signature component and the primary action surface of the window.
 The key column becomes per-row direction keys in rename and sync: 16px domes in a 20px lane aligned to the rows. Green arrow syncs in that direction, red trash removes, and a neutral dash or equals shows skipped or identical with no dome. Rename lanes use neutral keys because nothing is copied, moved or removed. A key that changes state bounces briefly over .16s.
 
 ### File Rows
-- **Default:** 20px, folders in 600, secondary columns in dim ink. A 6px tick left of the icon marks a row, with the whole row turning bold ink.
+- **Default:** 20px, folders in 600, secondary columns in dim ink. Each file shows its own 16px macOS icon. A 6px tick left of the icon marks a row, with the whole row turning bold ink.
 - **Cursor:** The cursor band in the active panel. In the inactive panel it becomes a 1px dim outline with no fill.
 - **Preview:** Row wash with matching text in 600 and an icon that states the action: plus for new, alert for replaced. Preview rows arrive over .2s, rising 6px with the same ease-out.
 - **Conflict:** A short note after the name says what happens, such as "replaces older".
 - **Error:** Line-toned band, bold ink, alert icon.
-- **Hidden:** Name and icon in dim ink.
+- **Hidden:** Name in dim ink and the icon at half strength.
 - **Inline edit:** Rename and new folder swap in an 18px field with a cursor-coloured stroke, inside the row.
 
 ### Status Bar Modes
@@ -386,7 +386,7 @@ A case-toned tray (6px, 2px padding) of 24px segments. The selected segment take
 - **Command line:** Borderless mono input behind a `%` prompt.
 
 ### Navigation
-Tabs are 24px with 6px top corners, dim on the case until selected, when they take the deck tone and join the panel. The path bar has back and forward chevrons, a bold current folder and free space at the right. Column heads are buttons; the sorted head turns bold ink.
+Tabs are 24px with 6px top corners, dim on the case until selected, when they take the deck tone and join the panel. A + sits at the right of the strip, and × shows on the selected or hovered tab. Tabs drag to reorder or to the other panel, narrow as the strip fills, and scroll past 72px. The path bar has back and forward chevrons, a bold current folder and free space at the right. Column heads are buttons; the sorted head turns bold ink.
 
 ### Menus and Palette
 The context menu is 230px on the deck with 24px items, icons and right-aligned shortcuts, and the cursor band as its highlight. The command palette is a 520px sheet with a 40px input and 28px items, opened from the title bar command field or ⌘K. The viewer opens in the opposite panel, not a window.

@@ -1,6 +1,7 @@
 import AppKit
 import CommanderCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PanelView: View {
     let workspace: Workspace
@@ -37,35 +38,208 @@ struct PanelView: View {
     }
 }
 
+/// The tab being dragged. Its type is private to this app, so text fields and other apps don't take it.
+@MainActor
+private enum TabDrag {
+    /// Declared in Commander-Info.plist, without which the system won't match it to a drop.
+    static let type = UTType(exportedAs: "dev.commander.tab")
+    static var id: UUID?
+
+    static func start(_ id: UUID) -> NSItemProvider {
+        self.id = id
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(forTypeIdentifier: type.identifier, visibility: .ownProcess) { done in
+            done(Data(), nil)
+            return nil
+        }
+        return provider
+    }
+}
+
+/// Which side of a tab the pointer is on decides whether the dragged tab lands before it or after it.
+private struct TabDropDelegate: DropDelegate {
+    let offset: Int
+    let width: CGFloat
+    @Binding var target: Int?
+    let onDrop: (UUID, Int) -> Void
+
+    private func position(_ info: DropInfo) -> Int {
+        info.location.x > width / 2 ? offset + 1 : offset
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        target = position(info)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        target = nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        target = nil
+        guard let id = TabDrag.id else { return false }
+        onDrop(id, position(info))
+        return true
+    }
+}
+
+/// A width limit that also holds when nothing proposes a width, as inside a scroll view, where a plain
+/// `frame(maxWidth:)` lets text run past it rather than truncate.
+private struct WidthLimit: Layout {
+    let limit: CGFloat
+
+    private func proposal(_ proposed: ProposedViewSize) -> ProposedViewSize {
+        ProposedViewSize(width: min(proposed.width ?? limit, limit), height: proposed.height)
+    }
+
+    func sizeThatFits(proposal proposed: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first?.sizeThatFits(proposal(proposed)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal proposed: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: proposal(proposed))
+    }
+}
+
 private struct TabStrip: View {
+    private static let widest: CGFloat = 180
+    private static let narrowest: CGFloat = 72
+
     let workspace: Workspace
     let index: Int
 
+    @State private var width: CGFloat = 0
+    @State private var tabWidths: [UUID: CGFloat] = [:]
+    /// Where a dragged tab would land.
+    @State private var dropTarget: Int?
+
+    private var panel: Panel { workspace.panels[index] }
+
+    /// Tabs get narrower as they fill the strip, and past the narrowest it scrolls.
+    private var tabWidth: CGFloat {
+        min(Self.widest, max(Self.narrowest, width / CGFloat(max(panel.tabs.count, 1))))
+    }
+
     var body: some View {
-        let panel = workspace.panels[index]
-        HStack(alignment: .bottom, spacing: 1) {
-            ForEach(Array(panel.tabs.enumerated()), id: \.offset) { offset, tab in
-                let isSelected = offset == panel.tabIndex
-                Button {
-                    workspace.activate(index)
-                    panel.selectTab(offset)
-                } label: {
-                    Text(tab.title)
-                        .lineLimit(1)
-                        .foregroundStyle(isSelected ? Theme.ink : Theme.dim)
-                        .padding(.horizontal, 12)
-                        .frame(height: 24)
-                        .background(isSelected ? Theme.deck : .clear, in: UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
-                        .contentShape(Rectangle())
+        HStack(alignment: .bottom, spacing: 4) {
+            ScrollViewReader { reader in
+                ScrollView(.horizontal) {
+                    HStack(alignment: .bottom, spacing: 1) {
+                        ForEach(Array(panel.tabs.enumerated()), id: \.element.id) { offset, tab in
+                            tabView(tab, offset)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .scrollIndicators(.never)
+                .scrollEdgeEffectHidden()
+                .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
+                .onChange(of: panel.tab.id) { _, id in reader.scrollTo(id) }
             }
-            Spacer(minLength: 0)
+            Button {
+                workspace.activate(index)
+                panel.newTab()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.dim)
+                    .frame(width: 20, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New Tab")
         }
         .padding(.horizontal, 8)
         .frame(height: 28, alignment: .bottom)
         .background(Theme.caseColor)
+        // The strip's empty space is the far end of it.
+        .onDrop(of: [TabDrag.type], delegate: delegate(offset: panel.tabs.count - 1, width: 0))
+    }
+
+    private func delegate(offset: Int, width: CGFloat) -> TabDropDelegate {
+        TabDropDelegate(offset: offset, width: width, target: $dropTarget) { id, position in
+            workspace.moveTab(id, toPanel: index, before: position)
+        }
+    }
+
+    private func tabView(_ tab: TabState, _ offset: Int) -> some View {
+        PanelTab(
+            title: tab.title, isSelected: offset == panel.tabIndex, canClose: panel.tabs.count > 1, maxWidth: tabWidth,
+            onSelect: {
+                workspace.activate(index)
+                panel.selectTab(offset)
+            },
+            onClose: { panel.closeTab(id: tab.id) },
+            onMove: { workspace.moveTab(tab.id, toPanel: 1 - index, before: workspace.panels[1 - index].tabIndex + 1) }
+        )
+        .id(tab.id)
+        .onGeometryChange(for: CGFloat.self, of: \.size.width) { tabWidths[tab.id] = $0 }
+        .onDrag {
+            TabDrag.start(tab.id)
+        } preview: {
+            Text(tab.title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: Self.widest)
+                .padding(.horizontal, 12)
+                .frame(height: 24)
+                .background(Theme.deck, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .overlay(alignment: .leading) {
+            if dropTarget == offset { Theme.cursor.frame(width: 2).accessibilityHidden(true) }
+        }
+        .overlay(alignment: .trailing) {
+            if dropTarget == offset + 1, offset == panel.tabs.count - 1 { Theme.cursor.frame(width: 2).accessibilityHidden(true) }
+        }
+        .onDrop(of: [TabDrag.type], delegate: delegate(offset: offset, width: tabWidths[tab.id] ?? 0))
+    }
+}
+
+private struct PanelTab: View {
+    let title: String
+    let isSelected: Bool
+    let canClose: Bool
+    let maxWidth: CGFloat
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    let onMove: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        WidthLimit(limit: maxWidth) {
+            HStack(spacing: 2) {
+                // Not a Button, which would take the mouse-down and stop the tab from being dragged.
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(isSelected ? Theme.ink : Theme.dim)
+                    .padding(.leading, 12)
+                    .padding(.trailing, canClose ? 2 : 12)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onSelect)
+                    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityAction(.default, onSelect)
+                    .accessibilityAction(named: "Move to Other Panel", onMove)
+                if canClose {
+                    // Always in the layout, so a tab doesn't change width as the pointer crosses it.
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Theme.dim)
+                            .frame(width: 14, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(isSelected || isHovered ? 1 : 0)
+                    .padding(.trailing, 4)
+                    .accessibilityLabel("Close \(title)")
+                }
+            }
+        }
+        .background(isSelected ? Theme.deck : .clear, in: UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
+        .onHover { isHovered = $0 }
     }
 }
 

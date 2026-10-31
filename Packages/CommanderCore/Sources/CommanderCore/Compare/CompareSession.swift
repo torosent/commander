@@ -1,6 +1,17 @@
 import Foundation
 import Observation
 
+/// Two tabs picked for comparing, by id because tabs can move while they're listed.
+public struct CompareChoice: Equatable, Sendable {
+    public var first: UUID
+    public var second: UUID
+
+    public init(first: UUID, second: UUID) {
+        self.first = first
+        self.second = second
+    }
+}
+
 /// The compare screen, which is also the sync's preview: what runs is exactly what the rows show.
 @MainActor
 @Observable

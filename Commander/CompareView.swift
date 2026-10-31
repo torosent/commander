@@ -228,15 +228,15 @@ private struct CompareRowView: View {
 
     private func side(_ side: CompareSide?, receives: Bool) -> some View {
         let isDim = row.verdict == .same && !row.isHeader
-        let symbol: String? = if let side { side.isFolder ? "folder.fill" : side.isLink ? "arrow.up.forward.square" : "doc" } else { "doc" }
         return RenameColumns(
             name: side?.name ?? "",
             ext: tag(side),
             size: side.flatMap { $0.isFolder ? nil : FileSize.format($0.size) } ?? "",
             modified: side.map { row.isHeader ? "" : RowFormat.date($0.modified) } ?? (receives ? "missing" : ""),
-            symbol: side == nil ? "" : symbol,
+            symbol: side == nil ? "" : "doc",
             ink: isCursor ? ink : isDim ? Theme.dim : ink,
             isBold: row.isHeader || (!isDim && side != nil),
+            fileIcon: side.map { FileIconView(name: $0.name, url: $0.url, modified: $0.modified, isFolder: $0.isFolder, isDim: isDim) },
             indent: CGFloat(row.depth) * 14,
             detailInk: isCursor ? ink : nil
         )
