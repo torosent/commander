@@ -77,6 +77,7 @@ extension Workspace {
             AppCommand("Paste Files", "⌘V", "doc.on.clipboard.fill", enabled: idle) { [self] in paste(desktop.pastedFiles(), move: false) },
             AppCommand("Compress to Other Panel", "⌘⇧P", "archivebox", enabled: chosen) { [self] in beginCompress() },
             AppCommand("Extract to Other Panel", "⌘⇧U", "archivebox.fill", enabled: chosen) { [self] in beginExtract() },
+            AppCommand("Compare and Sync", "⌘⇧D", "rectangle.split.2x1") { [self] in beginCompare() },
             AppCommand("Move Here", "⌥⌘V", "arrow.down.doc", enabled: idle) { [self] in paste(desktop.pastedFiles(), move: true) },
             AppCommand("Copy Path", "⌥⌘C", "link") { [self] in copyPath() },
             AppCommand("Open Terminal Here", "⌘⇧T", "terminal") { [self] in openTerminal() },

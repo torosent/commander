@@ -91,6 +91,9 @@ private struct BrowseCommands: Commands {
             Button("Extract", action: workspace.beginExtract)
                 .keyboardShortcut("u", modifiers: [.command, .shift])
                 .disabled(workspace.isTyping)
+            Button("Compare and Sync…", action: workspace.beginCompare)
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(workspace.isTyping)
             Button("Show Actions") { NSApp.sendAction(#selector(KeyTable.showActions(_:)), to: nil, from: nil) }
                 .keyboardShortcut("m", modifiers: [.command, .option])
             Button("Copy Path") { workspace.copyPath() }

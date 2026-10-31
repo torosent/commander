@@ -184,7 +184,7 @@ private struct RenameRowView: View {
 }
 
 /// The same four columns as a file panel.
-private struct RenameColumns: View {
+struct RenameColumns: View {
     let name: String
     let ext: String
     let size: String
@@ -192,18 +192,22 @@ private struct RenameColumns: View {
     var symbol: String?
     let ink: Color
     let isBold: Bool
+    var indent: CGFloat = 0
+    /// The ink for everything but the name, for rows where dim wouldn't show.
+    var detailInk: Color?
 
     var body: some View {
         HStack(spacing: 0) {
+            Color.clear.frame(width: indent)
             if let symbol {
-                Image(systemName: symbol).foregroundStyle(Theme.dim).frame(width: 18).accessibilityHidden(true)
+                Image(systemName: symbol).foregroundStyle(detailInk ?? Theme.dim).frame(width: 18).accessibilityHidden(true)
             }
             Text(name).fontWeight(isBold ? .semibold : .regular).foregroundStyle(ink)
                 .lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(ext).frame(width: 96, alignment: .leading).lineLimit(1).foregroundStyle(symbol == nil ? ink : isBold ? ink : Theme.dim)
-            Text(size).frame(width: 84, alignment: .trailing).foregroundStyle(Theme.dim)
-            Text(modified).frame(width: 106, alignment: .trailing).foregroundStyle(Theme.dim)
+            Text(ext).frame(width: 96, alignment: .leading).lineLimit(1).foregroundStyle(detailInk ?? (symbol == nil || isBold ? ink : Theme.dim))
+            Text(size).frame(width: 84, alignment: .trailing).foregroundStyle(detailInk ?? (symbol == nil ? ink : Theme.dim))
+            Text(modified).frame(width: 106, alignment: .trailing).foregroundStyle(detailInk ?? (symbol == nil ? ink : Theme.dim))
         }
         .padding(.horizontal, 8)
         .frame(maxHeight: .infinity)

@@ -12,6 +12,8 @@ struct ContentView: View {
             TitleStrip(workspace: workspace)
             if let session = workspace.renameSession {
                 MultiRenameView(workspace: workspace, session: session)
+            } else if let session = workspace.compareSession {
+                CompareView(workspace: workspace, session: session)
             } else {
                 HStack(spacing: 0) {
                     side(0)
@@ -101,6 +103,8 @@ private struct StatusBar: View {
         Group {
             if let session = workspace.renameSession {
                 RenameBar(workspace: workspace, session: session)
+            } else if let session = workspace.compareSession, workspace.jobs.current == nil {
+                CompareBar(workspace: workspace, session: session)
             } else if let pending = workspace.pending, let draft = pending.archive {
                 CompressBar(workspace: workspace, pending: pending, draft: draft)
             } else if let pending = workspace.pending {
@@ -157,6 +161,7 @@ enum JobText {
         case .rename: "Renaming"
         case .extract: "Extracting"
         case .compress: "Compressing"
+        case .sync: "Syncing"
         }
     }
 }
@@ -229,21 +234,22 @@ private struct OperationBar: View {
         case .rename: "Rename"
         case .extract: "Extract"
         case .compress: "Compress"
+        case .sync: "Sync"
         }
     }
 
     private var tint: Color {
         switch preview.kind {
-        case .copy, .extract, .compress: Theme.rgb(0x3FA34D)
-        case .move: Theme.rgb(0xB88A00)
-        case .trash, .delete: Theme.rgb(0xD8412F)
+        case .copy, .extract, .compress, .sync: Theme.goFill
+        case .move: Theme.moveFill
+        case .trash, .delete: Theme.removeFill
         case .rename: Theme.cursor
         }
     }
 
     private var title: String {
         switch preview.kind {
-        case .copy, .move, .rename, .extract, .compress: "\(verb) to \(preview.folder?.lastPathComponent ?? "")"
+        case .copy, .move, .rename, .extract, .compress, .sync: "\(verb) to \(preview.folder?.lastPathComponent ?? "")"
         case .trash: "Move \(items) to Trash"
         case .delete: "Permanently delete \(items)"
         }
@@ -255,7 +261,7 @@ private struct OperationBar: View {
         switch preview.kind {
         case .trash: parts.append("You can restore these from the Trash")
         case .delete: parts.append("This can't be undone")
-        case .copy, .move, .rename, .extract, .compress:
+        case .copy, .move, .rename, .extract, .compress, .sync:
             if preview.items.count > conflicts { parts.append("\(preview.items.count - conflicts) new") }
             if conflicts > 0 {
                 let what = switch pending.choice {
@@ -319,7 +325,7 @@ private struct CompressBar: View {
             Button("Cancel", action: workspace.cancelOperation)
             Button("Compress  ↩", action: workspace.runOperation)
                 .buttonStyle(.borderedProminent)
-                .tint(Theme.rgb(0x3FA34D))
+                .tint(Theme.goFill)
                 .disabled(workspace.archiveProblem != nil)
         }
         // The table redraws in the same pass, and SwiftUI would undo a focus change made during it.

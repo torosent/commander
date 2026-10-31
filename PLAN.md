@@ -95,6 +95,9 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 | Compress / uncompress | ⌘⇧P / ⌘⇧U |
 | Compress: ZIP or TAR.GZ | Tab in the name field |
 | Compare and sync | ⌘⇧D |
+| In compare: set direction, skip, trash | ← →, -, X |
+| In compare: mode, differences, allow deletions | 1 2 3, D, A |
+| In compare: show line differences | Space |
 | Find Files | ⌘F |
 | Hidden files | ⌘⇧. |
 | Command palette | ⌘K |
@@ -274,17 +277,33 @@ Decided in M6:
 
 ### M7: Compare and sync
 
-- [ ] Tree comparer by name and date, size, or content
-- [ ] Byte comparison that stops at the first difference
-- [ ] Aligned two-sided view with per-row direction keys
-- [ ] Sync plan as an `OperationPreview`, run through the job queue
-- [ ] Deletions off by default and always to Trash
-- [ ] Deletion applies only to a file that exists on one side, never to both copies
-- [ ] Tolerance for FAT's 2-second timestamps
-- [ ] Unicode and case normalization for name matching
-- [ ] File diff view for two text files
+- [x] Tree comparer by name and date, size, or content
+- [x] Byte comparison that stops at the first difference
+- [x] Aligned two-sided view with per-row direction keys
+- [x] Sync plan as an `OperationPreview`, run through the job queue
+- [x] Deletions off by default and always to Trash
+- [x] Deletion applies only to a file that exists on one side, never to both copies
+- [x] Tolerance for FAT's 2-second timestamps
+- [x] Unicode and case normalization for name matching
+- [x] File diff view for two text files
 
 **Exit:** a sync cannot run without showing its preview. Volumes with different case rules and Unicode forms produce no false differences.
+
+**Status:** code complete, with 366 tests passing. Tried in the running app with real keystrokes: all three compare modes, the Differences filter, direction keys, skip, allowing deletions, the diff view, and a sync including a Trash. Disk images cover case rules and FAT dates. A sync across two real external volumes hasn't been tried.
+
+Decided in M7:
+
+- The compare screen is the sync's preview, and `runSync` only works from it, so a sync can't run unseen.
+- A file changed after the comparison is refused at run time, on either side, and reported.
+- A folder that can't be read shows as unreadable and its contents stay out. Otherwise everything in it would look missing and be offered for copying.
+- A folder on one side only is one row, copied or trashed whole.
+- The same date with different sizes is shown as a difference with no direction, because nothing says which side is right.
+- Matching names ignore case when either volume does. Dates count as equal within 1 second, or 2 where a volume stores coarse times.
+- Hidden files follow the panel setting, and system clutter such as `.DS_Store` and `._` files is never a difference.
+- After a sync, rows the user skipped stay skipped, and a held Return can't start a second sync.
+- A folder going to Trash is refused if its date changed since the comparison. Its date only shows changes directly inside it.
+- Only regular files are read, so a named pipe shows as unreadable and a link's target is never opened for a line diff.
+- The compare screen shows the left panel against the right. Pressing Space on a row shows the text diff.
 
 ### M8: Find Files
 

@@ -22,6 +22,8 @@ public final class Workspace {
     public private(set) var viewer: Viewer?
     /// The multi-rename screen, which takes the place of the panels while open.
     public private(set) var renameSession: RenameSession?
+    /// The compare screen, which also takes the place of the panels.
+    public private(set) var compareSession: CompareSession?
     public private(set) var isPaletteOpen = false
     /// The command line command still running.
     public private(set) var runningCommand: String?
@@ -70,6 +72,7 @@ public final class Workspace {
 
     private func finished(_ report: JobReport) {
         for panel in panels { panel.refresh(following: report.renames) }
+        if report.kind == .sync { compareSession?.reload(keepingSkips: true) }
         let isUndoable = !report.renames.isEmpty && !report.isUndo
         if isUndoable { registerUndo(of: report.renames) }
         if report.needsAttention {
@@ -86,7 +89,7 @@ public final class Workspace {
     }
 
     public var isTyping: Bool {
-        isGoingToPath || patternBar != nil || isCommandLineFocused || isPaletteOpen || renameSession != nil || panels.contains { $0.edit != nil }
+        isGoingToPath || patternBar != nil || isCommandLineFocused || isPaletteOpen || renameSession != nil || compareSession != nil || panels.contains { $0.edit != nil }
     }
 
     public var session: Session {
@@ -165,6 +168,7 @@ public final class Workspace {
         if patternBar?.panel === panel { cancelPattern() }
         if let pending, pending.source === panel || pending.destination === panel { cancelOperation() }
         if renameSession?.panel === panel { cancelRename() }
+        if compareSession != nil { closeCompare() }
     }
 
     // MARK: Operations
@@ -336,6 +340,35 @@ public final class Workspace {
         returnFocus()
     }
 
+    // MARK: Compare and sync
+
+    /// Compares the two panels' folders, left against right.
+    public func beginCompare() {
+        guard pending == nil, planning == nil, renameSession == nil, compareSession == nil, !hasOpenField else { return }
+        let (left, right) = (panels[0], panels[1])
+        guard !left.isInsideArchive, !right.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
+        guard let one = FileNames.realPath(left.location), let two = FileNames.realPath(right.location) else {
+            return say("One of the folders can't be read.")
+        }
+        guard one != two else { return say("Both panels show the same folder.") }
+        // A sync between them would copy a folder into itself. The root is inside nothing but holds everything.
+        guard one != "/", two != "/", !one.hasPrefix(two + "/"), !two.hasPrefix(one + "/") else { return say("One panel's folder is inside the other's.") }
+        if viewer != nil { closeViewer() }
+        compareSession = CompareSession(left: left.location, right: right.location, showHidden: showHidden)
+    }
+
+    public func closeCompare() {
+        compareSession?.stop()
+        compareSession = nil
+        returnFocus()
+    }
+
+    /// Runs what the compare screen shows. There's no other way in, so a sync can't skip its preview.
+    public func runSync() {
+        guard let session = compareSession, session.canSync, jobs.current == nil else { return }
+        jobs.add(session.preview, choice: .replace)
+    }
+
     // MARK: Multi-rename
 
     /// Opens on the marked files, or the cursor's. Folders are left out, but packages count as files.
@@ -384,7 +417,7 @@ public final class Workspace {
     // MARK: Palette
 
     public func openPalette() {
-        guard renameSession == nil else { return }
+        guard renameSession == nil, compareSession == nil else { return }
         isPaletteOpen = true
     }
 
@@ -766,6 +799,9 @@ public final class Panel {
         guard refreshDelay == nil else { return }
         refreshDelay = Task {
             try? await Task.sleep(for: max(.milliseconds(150), lastLoadDuration))
+            // A load still running finishes first. Cancelling it would mean that in a folder
+            // being written to, a listing slower than this delay never completes at all.
+            await loading?.value
             if !Task.isCancelled { load(cursor: cursorEntry?.url, followMissing: true) }
         }
     }

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum OperationKind: String, Sendable {
-    case copy, move, trash, delete, rename, extract, compress
+    case copy, move, trash, delete, rename, extract, compress, sync
 }
 
 public enum ConflictChoice: CaseIterable, Sendable {
@@ -41,6 +41,9 @@ public struct PlannedItem: Identifiable, Sendable {
 
         public var isDirectory: Bool
         public var age: Age
+        /// What was there when planned, so a sync can tell if it has changed since.
+        public var modified: Date?
+        public var size: Int64?
         public var isNewer: Bool { age == .newer }
     }
 

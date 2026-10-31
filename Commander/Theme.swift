@@ -49,6 +49,9 @@ enum Theme {
     static let keyHigh = Color(nsColor: Palette.keyHigh)
     static let keyInk = Color(nsColor: Palette.keyInk)
     static let removeText = Color(nsColor: Palette.removeText)
+    static let goFill = rgb(0x3FA34D)
+    static let moveFill = rgb(0xB88A00)
+    static let removeFill = rgb(0xD8412F)
 
     static let body = Font.system(size: 12).monospacedDigit()
     static let label = Font.system(size: 11).monospacedDigit()

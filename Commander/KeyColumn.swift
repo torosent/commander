@@ -52,7 +52,7 @@ struct KeyColumn: View {
                 key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected || panel.isInsideArchive, compact: compact) { workspace.begin(.trash) }
                 rule
                 key("Rename", "⌘⇧R", "character.cursor.ibeam", disabled: nothingSelected || panel.isInsideArchive, compact: compact, action: workspace.beginRename)
-                key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact)
+                key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact, action: workspace.beginCompare)
                 Spacer(minLength: 0)
             }
             .frame(maxHeight: .infinity)
@@ -71,6 +71,7 @@ struct KeyColumn: View {
         case .rename: return title == "Rename"
         case .extract: return title == "Extract"
         case .compress: return title == "Compress"
+        case .sync: return title == "Compare"
         }
     }
 
@@ -128,9 +129,9 @@ enum KeyTone {
     var fill: Color {
         switch self {
         case .neutral: Theme.key
-        case .copy: Theme.rgb(0x3FA34D)
+        case .copy: Theme.goFill
         case .move: Theme.rgb(0xF2B705)
-        case .trash: Theme.rgb(0xD8412F)
+        case .trash: Theme.removeFill
         }
     }
 

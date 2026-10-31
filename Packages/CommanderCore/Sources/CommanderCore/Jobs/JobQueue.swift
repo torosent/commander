@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Observation
 
@@ -54,6 +55,7 @@ public struct JobReport: Sendable {
         case .rename: "Renamed"
         case .extract: "Extracted"
         case .compress: "Compressed"
+        case .sync: "Synced"
         }
         var text = kind == .rename && succeeded == 0 ? "Nothing was renamed." : "\(verb) \(succeeded) item\(succeeded == 1 ? "" : "s")."
         if wasStopped { text = "Stopped. " + text }
@@ -169,6 +171,10 @@ public final class JobQueue {
                     try FileManager.default.removeItem(at: item.source.url)
                 case .rename, .compress, .extract:
                     break
+                case .sync:
+                    let result = try sync(item, engine)
+                    report.keptNewer += result.keptNewer
+                    report.failures += result.failures
                 case .copy, .move:
                     guard let target = preview.destination(of: item, choice) else {
                         report.skipped += 1
@@ -194,6 +200,32 @@ public final class JobQueue {
             control.finishItem(settled: settled)
         }
         return report
+    }
+
+    /// One row of a sync. No target means it goes to Trash.
+    private nonisolated static func sync(_ item: PlannedItem, _ engine: CopyEngine) throws -> EngineReport {
+        try unchanged(item.source.url, item.source.modified, item.source.size, isFolder: item.source.isDirectory, goesToTrash: item.target == nil)
+        guard let target = item.target else {
+            try FileManager.default.trashItem(at: item.source.url, resultingItemURL: nil)
+            return EngineReport()
+        }
+        // The preview said what it would replace, so anything else there isn't overwritten.
+        if let existing = item.existing { try unchanged(target, existing.modified, existing.size, isFolder: existing.isDirectory) }
+        return try engine.copy(item.source.url, to: target, conflict: item.existing == nil ? .skip : .replace)
+    }
+
+    /// Time has passed since the comparison the user looked at, and it may no longer be true.
+    private nonisolated static func unchanged(_ url: URL, _ modified: Date?, _ size: Int64?, isFolder: Bool, goesToTrash: Bool = false) throws {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { throw OperationError.system(errno) }
+        let time = TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+        let isSameDate = abs(time - (modified?.timeIntervalSince1970 ?? 0)) < 0.001
+        // A folder copied whole just brings its newest contents, but one going to Trash takes them away.
+        // shortcut: a folder's date only shows changes directly inside it, walk it if that proves too loose.
+        let isSame = isFolder ? !goesToTrash || isSameDate : size == Int64(info.st_size) && isSameDate
+        guard isFolder == (info.st_mode & S_IFMT == S_IFDIR), isSame else {
+            throw OperationError.unsupported("It changed after the comparison, so it was left alone.")
+        }
     }
 
     /// Goes through each archive once, however many items are coming out of it.
@@ -267,8 +299,8 @@ public final class JobQueue {
     /// shortcut: Stop waits for the folder being walked. Check `control` inside the walk if that proves slow.
     private nonisolated static func measure(_ preview: OperationPreview, _ choice: ConflictChoice, _ control: JobControl) -> [URL: Int64] {
         var sizes: [URL: Int64] = [:]
-        guard preview.kind == .copy || preview.kind == .move || preview.kind == .compress else { return [:] }
-        for item in preview.items where (preview.kind == .compress || preview.destination(of: item, choice) != nil) && !control.isCancelled {
+        guard [.copy, .move, .compress, .sync].contains(preview.kind) else { return [:] }
+        for item in preview.items where (preview.kind == .compress || item.target != nil && preview.destination(of: item, choice) != nil) && !control.isCancelled {
             let isFolder = item.source.isDirectory && !item.source.isSymlink
             sizes[item.source.url] = isFolder ? LocalSource.measure(item.source.url) ?? 0 : item.source.size ?? 0
         }
