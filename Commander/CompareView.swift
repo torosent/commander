@@ -87,6 +87,8 @@ struct CompareView: View {
             .scrollEdgeEffectHidden()
             .onChange(of: session.cursor) { _, cursor in
                 reader.scrollTo(cursor)
+                // These rows aren't a table VoiceOver follows, so the cursor has to speak for itself.
+                if session.visible.indices.contains(cursor) { Announcement.say(CompareRowView.description(of: session.visible[cursor])) }
             }
         }
     }
@@ -206,11 +208,11 @@ private struct CompareRowView: View {
         }
         .background(isCursor ? Theme.cursor : .clear)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(description)
+        .accessibilityLabel(Self.description(of: row))
         .accessibilityAddTraits(isCursor ? .isSelected : [])
     }
 
-    private var description: String {
+    static func description(of row: CompareRow) -> String {
         let action = switch row.action {
         case .toRight: "copies to the right"
         case .toLeft: "copies to the left"
@@ -218,7 +220,14 @@ private struct CompareRowView: View {
         case .skip: "skipped"
         case .none: row.verdict == .same ? "identical" : "left alone"
         }
-        return "\(row.name), \(action)"
+        let reason = switch row.verdict {
+        case .clash: ", a file on one side and a folder on the other"
+        case .unreadable: ", can't be read"
+        case .nameTaken: ", the name is taken on the other side"
+        default: ""
+        }
+        let place = row.left == nil ? ", only on the right" : row.right == nil ? ", only on the left" : ""
+        return "\(row.name)\(place), \(action)\(reason)"
     }
 
     private func wash(for side: CompareSide?) -> Color {
@@ -256,9 +265,9 @@ private struct CompareRowView: View {
     @ViewBuilder
     private var lane: some View {
         switch row.action {
-        case .toRight: dome("arrow.right", fill: Theme.goFill)
-        case .toLeft: dome("arrow.left", fill: Theme.goFill)
-        case .trash: dome("trash", fill: Theme.removeFill)
+        case .toRight: dome("arrow.right", .copy)
+        case .toLeft: dome("arrow.left", .copy)
+        case .trash: dome("trash", .trash)
         case .skip: mark("minus")
         case .none:
             if row.verdict == .same, !row.isHeader {
@@ -273,12 +282,12 @@ private struct CompareRowView: View {
         Image(systemName: symbol).font(.system(size: 9, weight: .bold)).foregroundStyle(isCursor ? ink : Theme.dim)
     }
 
-    private func dome(_ symbol: String, fill: Color) -> some View {
+    private func dome(_ symbol: String, _ tone: KeyTone) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(tone.ink)
             .frame(width: 16, height: 16)
-            .background(fill, in: Circle())
+            .background(tone.fill, in: Circle())
             .shadow(color: .black.opacity(0.4), radius: 0.5, y: 1)
     }
 }
@@ -311,8 +320,7 @@ struct CompareBar: View {
                 Button("Close  esc", action: workspace.closeCompare)
             }
             Button(run, action: workspace.runSync)
-                .buttonStyle(.borderedProminent)
-                .tint(session.toTrash > 0 ? Theme.removeFill : Theme.goFill)
+                .buttonStyle(RunButtonStyle(fill: session.toTrash > 0 ? Theme.removeFill : Theme.goFill, ink: (session.toTrash > 0 ? KeyTone.trash : KeyTone.copy).ink))
                 .disabled(!session.canSync)
         }
     }
@@ -420,7 +428,14 @@ private struct DiffLine: View {
             cell(row.right)
         }
         .font(.system(size: 12, design: .monospaced))
-        .background(row.isChanged ? Theme.line : .clear)
+        .background(row.isChanged ? Theme.band : .clear)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(description)
+    }
+
+    private var description: String {
+        guard row.isChanged else { return row.left ?? "" }
+        return "Changed. Left: \(row.left ?? "no line"). Right: \(row.right ?? "no line")"
     }
 
     private func cell(_ text: String?) -> some View {

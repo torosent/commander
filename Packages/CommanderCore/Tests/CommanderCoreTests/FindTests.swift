@@ -626,6 +626,20 @@ private func find(
         #expect(!app.active.isResults)
     }
 
+    @Test func aSearchSaysHowItEnded() async throws {
+        let temp = try TempFolder()
+        try temp.file("a/one.md")
+        let app = try await setup(temp)
+        let session = try await search(app, "*.md")
+        #expect(session.summary == "1 item found")
+        session.query = FindQuery()
+        #expect(session.summary == nil)
+        session.query.name = "*.md"
+        #expect(session.summary == nil)
+        session.stop()
+        #expect(session.summary == "0 items found. Stopped")
+    }
+
     @Test func leavingForAnotherTabClosesTheBarAndGivesBackTheKeyboard() async throws {
         let temp = try TempFolder()
         try temp.file("a/one.md")

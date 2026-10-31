@@ -154,7 +154,7 @@ private struct RenameRowView: View {
                 // The new name's type, because a changed extension changes the icon.
                 fileIcon: row.problem == nil ? FileIconView(name: row.fileName, url: row.isChanged ? nil : row.entry.url, modified: row.entry.modified) : nil
             )
-            .background(row.problem == nil ? Color.clear : Theme.line)
+            .background(row.problem == nil ? Color.clear : Theme.band)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(description)

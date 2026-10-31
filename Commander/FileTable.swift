@@ -354,7 +354,11 @@ struct FileTable: NSViewRepresentable {
         case 48:
             panel.endSearch()
             workspace.switchPanel()
-        case 49: panel.markOrExtendSearch()
+        case 49:
+            let before = panel.markedCount
+            panel.markOrExtendSearch()
+            // Space can extend a search instead, and a held key would talk over every row it passes.
+            if panel.markedCount != before, !event.isARepeat { Announcement.say("\(panel.markedCount) marked") }
         case 53:
             if workspace.patternBar != nil {
                 workspace.cancelPattern()
@@ -843,6 +847,8 @@ private final class FileCell: NSView {
             } else {
                 label.stringValue = name
             }
+            // The value rather than a label, which VoiceOver would read as well as the name.
+            label.setAccessibilityValue(description(of: entry, name: name, isMarked: isMarked, tag: style?.tag))
             dot.isHidden = !isMarked
             dot.contentTintColor = ink
             iconKey = nil
@@ -862,6 +868,20 @@ private final class FileCell: NSView {
         case .size: label.stringValue = entry.size.map(FileSize.format) ?? ""
         case .modified: label.stringValue = entry.modified.map(RowFormat.date) ?? ""
         }
+    }
+
+    /// What the row's look says to anyone who can see it.
+    private func description(of entry: FileEntry, name: String, isMarked: Bool, tag: String?) -> String {
+        if entry.isParent { return "Enclosing folder" }
+        var parts = [isMarked ? "\(name), marked" : name]
+        if entry.isSymlink {
+            parts.append("link")
+        } else if entry.opensAsFolder {
+            parts.append("folder")
+        }
+        if entry.isHidden { parts.append("hidden") }
+        if let tag { parts.append(tag) }
+        return parts.joined(separator: ", ")
     }
 
     private func showFileIcon(_ entry: FileEntry, isInsideArchive: Bool) {

@@ -33,7 +33,11 @@ struct CommandPalette: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 5).stroke(Theme.cursor, lineWidth: 2).padding(3)
                 }
-                .onChange(of: query) { chosen = 0 }
+                .onChange(of: query) {
+                    chosen = 0
+                    // Return runs the top match, so it's said aloud as it changes.
+                    Announcement.say(hits.first?.title ?? "No command matches.")
+                }
                 .onSubmit { run(chosen) }
                 .onExitCommand(perform: workspace.closePalette)
                 .onKeyPress(.downArrow) { step(1) }
@@ -70,7 +74,11 @@ struct CommandPalette: View {
             .scrollEdgeEffectHidden()
             .frame(height: min(CGFloat(max(hits.count, 2)) * 28 + 8, 372))
             .onChange(of: chosen) {
-                if hits.indices.contains(chosen) { reader.scrollTo(hits[chosen].id) }
+                if hits.indices.contains(chosen) {
+                    reader.scrollTo(hits[chosen].id)
+                    // Focus stays in the field, so VoiceOver has no other way of hearing the choice.
+                    Announcement.say(hits[chosen].title)
+                }
             }
         }
     }

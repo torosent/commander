@@ -11,8 +11,10 @@ import Testing
         return workspace
     }
 
+    /// Stops as soon as the condition holds. The limit is long because disk image tests running
+    /// alongside can hold up a listing for many seconds, and that mustn't read as a failure.
     private func settle(_ panel: Panel, until condition: () -> Bool) async {
-        for _ in 0..<500 where !condition() {
+        for _ in 0..<2_000 where !condition() {
             try? await Task.sleep(for: .milliseconds(30))
         }
         await panel.loaded()
@@ -243,7 +245,7 @@ import Testing
         let temp = try TempFolder()
         let panel = await workspace(temp).panels[0]
         // Faster than the 150ms refresh delay, so a delay that restarts would never fire.
-        for index in 0..<250 where panel.rows.count == 1 {
+        for index in 0..<1_500 where panel.rows.count == 1 {
             try temp.file("file\(index)")
             try await Task.sleep(for: .milliseconds(40))
         }

@@ -2,7 +2,7 @@
 
 A native macOS dual-panel file manager inspired by Total Commander. It's a personal daily driver: unsandboxed, distributed directly, keyboard first.
 
-Milestone 0 is complete: the app builds and shows an empty window. See PLAN.md for what comes next.
+Milestones 0 to 8.5 are done. M9, the release, is under way, and PLAN.md says what's left.
 
 ## Where things are
 
@@ -20,6 +20,8 @@ swift test --package-path Packages/CommanderCore
 ```bash
 xcodebuild -project Commander.xcodeproj -scheme Commander build
 ```
+
+`scripts/release.sh` makes the Release build. Its header says how to sign it.
 
 ## Stack
 

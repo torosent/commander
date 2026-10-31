@@ -730,11 +730,6 @@ public final class Workspace {
         bar.panel.preview(Glob(bar.text), marks: bar.marks)
     }
 
-    /// Keeps a key that isn't wired up yet from looking broken.
-    public func notBuilt(_ action: String) {
-        say("\(action) arrives in a later milestone.")
-    }
-
     public func say(_ text: String) {
         message = text
         messageTask?.cancel()
@@ -981,7 +976,13 @@ public final class Panel {
             // A load still running finishes first. Cancelling it would mean that in a folder
             // being written to, a listing slower than this delay never completes at all.
             await loading?.value
-            if !Task.isCancelled { load(cursor: cursorEntry?.url, followMissing: true) }
+            // A rename's own refresh puts the cursor on the new name. Listing halfway through
+            // would look for the old one, miss it, and leave the cursor on a neighbouring file.
+            if workspace?.jobs.current?.kind == .rename {
+                refreshDelay = nil
+            } else if !Task.isCancelled {
+                load(cursor: cursorEntry?.url, followMissing: true)
+            }
         }
     }
 

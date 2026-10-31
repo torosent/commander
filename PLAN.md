@@ -8,7 +8,7 @@ The working design is [design/commander.html](design/commander.html), a clickabl
 
 | Area | Decision |
 |---|---|
-| Distribution | Direct, unsandboxed, Developer ID notarized. No Mac App Store. |
+| Distribution | Direct and unsandboxed, signed locally for this Mac. Developer ID and notarization if it's ever shared. No Mac App Store. |
 | Target | macOS 26 or later, Apple silicon first. |
 | Language | Swift 6 with strict concurrency. |
 | UI | SwiftUI for the window, dialogs and settings. AppKit `NSTableView` for file panels and the Mac menu bar. |
@@ -388,34 +388,32 @@ Decided in M8.5:
 
 ### M9: Release
 
-- [ ] Full VoiceOver pass over every screen
-- [ ] Reduced motion, increased contrast and keyboard focus check
-- [ ] App icon
-- [ ] Developer ID signing and notarization
+- [ ] Listen to VoiceOver on every screen
+- [x] Reduced motion
+- [ ] See Increase Contrast on screen
+- [x] Keyboard focus check
+- [x] App icon
+- [x] Signing for this Mac
 - [ ] Use it as the daily file manager for two weeks and fix what comes up
 
 **Exit:** Finder is no longer needed for daily file work.
 
+**Status:** three items need a person. The VoiceOver work is done in code, with every row, status message, compare row, diff line and palette choice now spoken, and the end of a search announced, but nobody has listened to it. Increase Contrast is measured and coded, but the system setting hasn't been switched on to see it. The two weeks of daily use haven't started. A signed Release build runs, and lists and sorts 100,000 files in 1.3 seconds against the 3-second target. 458 tests pass.
+
+The keyboard focus check ran on that signed build with real keys: after Find, Go to Path, the mark bar, the palette, a compare refusal and the viewer, the arrow keys still moved the cursor, and Tab crossed panels and back. Focus after multi-rename and compress was checked in their own milestones.
+
+Decided in M9:
+
+- Signing is local for now. `scripts/release.sh` with `IDENTITY` set to the Apple Development certificate gives a hardened, timestamped build whose identity holds across rebuilds, so Full Disk Access should carry over. It isn't notarized, so it's for this Mac only, and Gatekeeper rejects it on assessment. The certificate came from a free Personal Team and expires on 31 October 2027. Sharing the app needs the paid Apple Developer Program, and the same script then notarizes.
+- The icon is `Commander/Commander.icon`, a native Icon Composer document, because that format can hold HDR and PNGs can't. Only the Copy key goes past white, at `extended-srgb` green 1.15, which still reads as the key's green on an SDR display. The compiled catalog keeps that value. Whether the Dock lights it up needs an HDR display to see.
+- Run buttons draw their own fill and use the keys' dark inks, because white on green was 3.2:1, on yellow 3.15:1, and a system prominent button turns grey in an inactive window. Trash red went from #D8412F to #D23C2A, for 4.75:1 with white.
+- Increase Contrast is read directly from the system, because a theme forced in Settings is a plain appearance that wouldn't report it. Row bands have their own token, which stays put, so text on them gains contrast rather than losing it.
+- A folder-watcher refresh stands aside during a rename, because listing halfway through could leave the cursor on a neighbouring file. That bug dated from M5, and a rare test failure exposed it.
+- A short window drops the keys' printed names, so each key has a tooltip.
+
 ## Open questions
 
-Decided in M0: the domed keys are a SwiftUI `ButtonStyle` built from a radial gradient and shadows, and macOS 26 stays the minimum. Decided in M1: ⌘↓ opens a package as a folder.
-
-| Question | Decide by |
-|---|---|
-| Should New, Compress and Extract keys be green, since green means copy or create? They are neutral in the prototype. | M2 |
-| Should the run button repeat the count ("Copy 6 items"), given that each fact appears once? | M3 |
-
-## Design fixes to carry into the app
-
-The prototype still has these small gaps. Fix them in the native build, not the prototype.
-
-- White on Trash red is 4.45:1, just under the 4.5:1 target for small text.
-- Red status counts such as "1 replaced" have no icon of their own.
-- Pattern and Find fields use the sans font, though masks are meant to be mono.
-- Status messages use dim ink, and the Go to error has no icon.
-- The command palette input has no focus ring.
-- Under 760px of height, keys lose their visible labels.
-- Follow live system theme changes; the prototype reads the theme only at load.
+None. Decided along the way: the domed keys are a SwiftUI `ButtonStyle`, macOS 26 is the minimum, ⌘↓ opens a package as a folder, New, Compress and Extract stay neutral, and run buttons repeat the count.
 
 ## Risks
 

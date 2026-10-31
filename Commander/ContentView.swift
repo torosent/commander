@@ -32,6 +32,14 @@ struct ContentView: View {
         .background(Theme.caseColor)
         .ignoresSafeArea()
         .background(WindowFrameSaver())
+        // Anything that appears in the status bar is said aloud too, or VoiceOver users would never hear it.
+        .onChange(of: workspace.message) { _, text in Announcement.say(text) }
+        .onChange(of: workspace.report?.summary) { _, text in Announcement.say(text) }
+        .onChange(of: workspace.compareSession?.notice) { _, text in Announcement.say(text) }
+        // The end of a search rather than its start, which would talk over every keystroke.
+        .onChange(of: workspace.find?.isSearching) { _, isSearching in
+            if isSearching == false { Announcement.say(workspace.find?.summary) }
+        }
         .onReceive(NSApplication.shared.publisher(for: \.isActive).dropFirst()) { _ in Preferences.save(workspace.session) }
         // The window can close without the app ever going inactive, and this view goes with it.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
@@ -41,6 +49,11 @@ struct ContentView: View {
             Preferences.save(workspace.session)
         }
         .onChange(of: theme, initial: true) { _, theme in NSApp.appearance = theme.appearance }
+        // A forced theme isn't affected by this setting, so nothing else would make the window redraw.
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)) { _ in
+            NSApp.appearance = nil
+            DispatchQueue.main.async { NSApp.appearance = theme.appearance }
+        }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in
             workspace.refreshVolumes()
         }
@@ -134,7 +147,7 @@ private struct StatusBar: View {
                 }
             } else if let message = workspace.message {
                 HStack {
-                    Text(message)
+                    Text(message).foregroundStyle(Theme.ink)
                     Spacer()
                 }
             } else {
@@ -152,6 +165,14 @@ private struct StatusBar: View {
         .frame(height: 36)
         .background(Theme.deck)
         .overlay(alignment: .top) { Theme.rim.frame(height: 1) }
+    }
+}
+
+/// Tells VoiceOver something that changed where its cursor isn't. Nothing happens with VoiceOver off.
+enum Announcement {
+    static func say(_ text: String?) {
+        guard let text, !text.isEmpty else { return }
+        AccessibilityNotification.Announcement(text).post()
     }
 }
 
@@ -222,8 +243,7 @@ private struct OperationBar: View {
                 Button("Delete Forever  D", role: .destructive, action: workspace.runOperation).tint(.red)
             } else {
                 Button("\(verb) \(items)  ↩", action: workspace.runOperation)
-                    .buttonStyle(.borderedProminent)
-                    .tint(tint)
+                    .buttonStyle(RunButtonStyle(fill: tint, ink: runInk))
                     .disabled(count == 0)
             }
         }
@@ -248,6 +268,16 @@ private struct OperationBar: View {
         case .move: Theme.moveFill
         case .trash, .delete: Theme.removeFill
         case .rename: Theme.cursor
+        }
+    }
+
+    /// The keys' own inks, because white on these fills falls short of 4.5:1.
+    private var runInk: Color {
+        switch preview.kind {
+        case .copy, .extract, .compress, .sync: KeyTone.copy.ink
+        case .move: KeyTone.move.ink
+        case .trash, .delete: KeyTone.trash.ink
+        case .rename: Color(nsColor: Palette.cursorInk)
         }
     }
 
@@ -328,8 +358,7 @@ private struct CompressBar: View {
             Spacer()
             Button("Cancel", action: workspace.cancelOperation)
             Button("Compress  ↩", action: workspace.runOperation)
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.goFill)
+                .buttonStyle(RunButtonStyle(fill: Theme.goFill, ink: KeyTone.copy.ink))
                 .disabled(workspace.archiveProblem != nil)
         }
         // The table redraws in the same pass, and SwiftUI would undo a focus change made during it.
@@ -507,7 +536,10 @@ private struct GoToBar: View {
                 .focused($isFocused)
                 .onSubmit(go)
                 .onExitCommand(perform: close)
-            Text(problem)
+            if !problem.isEmpty {
+                Image(systemName: "exclamationmark.circle").foregroundStyle(Theme.ink).accessibilityHidden(true)
+                Text(problem).foregroundStyle(Theme.ink)
+            }
             Spacer()
             Button("Cancel", action: close)
             Button("Go", action: go)

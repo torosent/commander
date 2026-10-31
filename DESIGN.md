@@ -12,11 +12,11 @@ colors:
   mv-ink: "#2F2300"
   mv-t: "#F7CF58"
   mv-bg: "rgba(242,183,5,.17)"
-  rm: "#D8412F"
+  rm: "#D23C2A"
   rm-hi: "#EC6A59"
   rm-ink: "#FFFFFF"
   rm-t: "#F6A094"
-  rm-bg: "rgba(216,65,47,.22)"
+  rm-bg: "rgba(210,60,42,.22)"
   case: "#262523"
   deck: "#1E1D1C"
   rim: "#000000"
@@ -42,7 +42,7 @@ colors:
   light-mv-t: "#6E5000"
   light-mv-bg: "rgba(242,183,5,.26)"
   light-rm-t: "#A02719"
-  light-rm-bg: "rgba(216,65,47,.15)"
+  light-rm-bg: "rgba(210,60,42,.15)"
   light-key: "#C9C5BA"
   light-key-hi: "#ECE9E1"
   light-key-ink: "#1E1D1B"
@@ -260,7 +260,7 @@ A warm graphite neutral range carries three saturated action colours, and each a
 - **Move Yellow** (#F2B705): Moves. Fills the Move key, the move run button and move progress; washes rows leaving the source panel.
 
 ### Tertiary
-- **Trash Red** (#D8412F): Removes or overwrites. Fills the Trash key, the trash run button and any sync that sends files to Trash; washes rows going to Trash and destination rows a copy would replace.
+- **Trash Red** (#D23C2A): Removes or overwrites. Fills the Trash key, the trash run button and any sync that sends files to Trash; washes rows going to Trash and destination rows a copy would replace.
 
 ### Neutral
 - **Graphite Case** (#262523, light #DDD9CF): Window frame, tab strip, panel titles, footers, option bars.

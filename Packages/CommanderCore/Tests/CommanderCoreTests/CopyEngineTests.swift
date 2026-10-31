@@ -13,13 +13,31 @@ final class DiskImage: @unchecked Sendable {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         image = folder.appending(path: "disk.dmg")
         mount = folder.appending(path: "mnt", directoryHint: .isDirectory)
-        try Self.run(["create", "-size", "\(megabytes)m", "-fs", format, "-volname", "T", image.path])
+        try Self.blankCopy(format, megabytes, to: image)
         try Self.run(["attach", image.path, "-mountpoint", mount.path, "-nobrowse", "-quiet"])
     }
 
+    /// Off whichever thread let go of it, which can be the main actor that every other test is waiting for.
     deinit {
-        try? Self.run(["detach", mount.path, "-force", "-quiet"])
-        try? FileManager.default.removeItem(at: image.deletingLastPathComponent())
+        let (mount, folder) = (mount, image.deletingLastPathComponent())
+        DispatchQueue.global().async {
+            try? Self.run(["detach", mount.path, "-force", "-quiet"])
+            try? FileManager.default.removeItem(at: folder)
+        }
+    }
+
+    private static let templates = NSLock()
+
+    /// Making a blank image is the slow part, and each call blocks a thread that other tests are waiting
+    /// for. Enough at once held up their listings for longer than they allow, so each format is made once.
+    private static func blankCopy(_ format: String, _ megabytes: Int, to image: URL) throws {
+        templates.lock()
+        defer { templates.unlock() }
+        let template = FileManager.default.temporaryDirectory.appending(path: "commander-blank-\(format)-\(megabytes)m.dmg")
+        if !FileManager.default.fileExists(atPath: template.path) {
+            try run(["create", "-size", "\(megabytes)m", "-fs", format, "-volname", "T", template.path])
+        }
+        try FileManager.default.copyItem(at: template, to: image)
     }
 
     private static func run(_ arguments: [String]) throws {

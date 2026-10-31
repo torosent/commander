@@ -85,17 +85,17 @@ struct KeyColumn: View {
     private func key(
         _ title: String, _ shortcut: String, _ symbol: String,
         tone: KeyTone = .neutral, disabled: Bool = false, compact: Bool,
-        action: (() -> Void)? = nil
+        action: @escaping () -> Void
     ) -> some View {
-        Button {
-            if let action { action() } else { workspace.notBuilt(title) }
-        } label: {
+        Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .medium))
                 .accessibilityHidden(true)
         }
         .buttonStyle(DomeKeyStyle(title: "\(title) \(shortcut)", tone: tone, compact: compact, isHeld: isHeld(title)))
         .disabled(disabled)
+        // A short window drops the printed names, so the pointer can still find out what a key is.
+        .help("\(title) \(shortcut)")
         .accessibilityLabel(title)
         .accessibilityHint(shortcut)
     }
@@ -154,6 +154,25 @@ enum KeyTone {
         case .move: Theme.rgb(0x2F2300)
         case .trash: .white
         }
+    }
+}
+
+/// The button that runs an operation. It draws its own fill, because a system prominent button
+/// turns grey in an inactive window while the label stays dark.
+struct RunButtonStyle: ButtonStyle {
+    let fill: Color
+    let ink: Color
+
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .fontWeight(.semibold)
+            .foregroundStyle(ink)
+            .padding(.horizontal, 10)
+            .frame(height: 22)
+            .background(fill, in: RoundedRectangle(cornerRadius: 5))
+            .opacity(isEnabled ? configuration.isPressed ? 0.8 : 1 : 0.45)
     }
 }
 

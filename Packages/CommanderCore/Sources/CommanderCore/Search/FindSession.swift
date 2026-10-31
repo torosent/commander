@@ -30,6 +30,14 @@ public final class FindSession {
         self.showHidden = showHidden
     }
 
+    /// How the search ended, for anyone who can't see the footer.
+    public var summary: String? {
+        guard !isSearching, !query.isEmpty else { return nil }
+        let count = panel.rows.count
+        let found = "\(count.formatted()) item\(count == 1 ? "" : "s") found"
+        return panel.findStatus.map { "\(found). \($0)" } ?? found
+    }
+
     /// Waits for the search. Used by tests.
     public func finished() async {
         await task?.value
