@@ -225,15 +225,23 @@ Decided in M4:
 
 ### M5: Multi-rename
 
-- [ ] Pattern parser with `[N]`, `[N1-5]`, `[E]`, `[C]`, `[YMD]`
-- [ ] Find and replace with regex, case conversion, counter start, step and digits
-- [ ] Before and after view with live conflict detection, windowed for large sets
-- [ ] Rename through temp names so swaps work
-- [ ] Undo
+- [x] Pattern parser with `[N]`, `[N1-5]`, `[E]`, `[C]`, `[YMD]`
+- [x] Find and replace with regex, case conversion, counter start, step and digits
+- [x] Before and after view with live conflict detection, windowed for large sets
+- [x] Rename through temp names so swaps work
+- [x] Undo
 
 **Tests:** every token, `[YMD]` using the local date, literal replacement of `$`, collisions inside the set and with existing files, invalid names, `a→b` with `b→a`, partial failure.
 
 **Exit:** renaming 1,000 files previews live and can be undone in one step.
+
+**Status:** code complete, with 248 tests passing. Tried in the running app on 1,200 files: live preview, collision errors, the run, Undo and Redo in one step, Esc and Page Down. The right-click entry and the real ⌘⇧R keystroke haven't been tried by hand.
+
+Decided in M5:
+
+- A rename is all or nothing. Any failure puts every file back, because a half-renamed set is harder to fix than an error.
+- Folders are left out of the marked set, as in the prototype, but packages count as files. Inline rename still handles a folder.
+- Find, Replace and Case apply to the name, not the extension.
 
 ### M6: Archives
 

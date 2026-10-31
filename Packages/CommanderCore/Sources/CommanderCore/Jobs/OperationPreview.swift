@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum OperationKind: String, Sendable {
-    case copy, move, trash, delete
+    case copy, move, trash, delete, rename
 }
 
 public enum ConflictChoice: CaseIterable, Sendable {
@@ -59,6 +59,8 @@ public struct OperationPreview: Sendable {
     public let items: [PlannedItem]
     /// Items left out because they're already in the destination.
     public let alreadyThere: Int
+    /// A rename reversing an earlier one, whose redo is already registered.
+    public var isUndo = false
 
     public var conflicts: [PlannedItem] { items.filter { $0.existing != nil } }
 
@@ -149,7 +151,11 @@ public enum FileNames {
 
     /// A file's identity within one folder, whichever Unicode form or case the volume stored.
     static func key(_ url: URL) -> String {
-        url.lastPathComponent.precomposedStringWithCanonicalMapping.lowercased()
+        key(name: url.lastPathComponent)
+    }
+
+    static func key(name: String) -> String {
+        name.precomposedStringWithCanonicalMapping.lowercased()
     }
 
     static func exists(_ url: URL) -> Bool {

@@ -83,6 +83,8 @@ struct FileTable: NSViewRepresentable {
         func update(_ view: FileTable) {
             guard let table else { return }
             self.view = view
+            // A new table has no window on its first update, which mustn't clear the manager.
+            if let manager = table.undoManager { view.workspace.undoManager = manager }
             onSelect = { [workspace = view.workspace, index = view.index] row in
                 workspace.activate(index)
                 workspace.panels[index].setCursor(row)
@@ -449,7 +451,11 @@ extension FileTable {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects(entries.map(\.url) as [NSURL])
         }
-        if !isMany { menu.add("Rename") { panel.beginRename() } }
+        if isMany {
+            menu.add("Multi-Rename", action: workspace.beginRename)
+        } else {
+            menu.add("Rename") { panel.beginRename() }
+        }
         menu.addItem(.separator())
         menu.add("Move to Trash") { workspace.begin(.trash, entries: entries) }
         return menu
@@ -809,7 +815,7 @@ private final class FileCell: NSView {
             icon.contentTintColor = style == nil && !isCursor ? Palette.dim : ink
         case .ext: label.stringValue = entry.ext
         case .size: label.stringValue = entry.size.map(FileSize.format) ?? ""
-        case .modified: label.stringValue = entry.modified.map(Self.date) ?? ""
+        case .modified: label.stringValue = entry.modified.map(RowFormat.date) ?? ""
         }
     }
 
@@ -819,6 +825,11 @@ private final class FileCell: NSView {
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)
     }
 
+}
+
+/// The Modified column's date, wherever files are listed.
+@MainActor
+enum RowFormat {
     private static let recentFormat: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "dd MMM HH:mm"
@@ -831,7 +842,7 @@ private final class FileCell: NSView {
         return formatter
     }()
 
-    private static func date(_ date: Date) -> String {
+    static func date(_ date: Date) -> String {
         let sameYear = Calendar.current.isDate(date, equalTo: .now, toGranularity: .year)
         return (sameYear ? recentFormat : olderFormat).string(from: date)
     }

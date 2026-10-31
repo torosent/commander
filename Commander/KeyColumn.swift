@@ -48,7 +48,7 @@ struct KeyColumn: View {
                 key("New", "F7", "plus", compact: compact) { panel.beginNewFolder() }
                 key("Trash", "F8", "trash", tone: .trash, disabled: nothingSelected, compact: compact) { workspace.begin(.trash) }
                 rule
-                key("Rename", "⌘⇧R", "character.cursor.ibeam", compact: compact)
+                key("Rename", "⌘⇧R", "character.cursor.ibeam", disabled: nothingSelected, compact: compact, action: workspace.beginRename)
                 key("Compare", "⌘⇧D", "rectangle.split.2x1", compact: compact)
                 Spacer(minLength: 0)
             }
@@ -65,6 +65,7 @@ struct KeyColumn: View {
         case .copy: return title == "Copy"
         case .move: return title == "Move"
         case .trash, .delete: return title == "Trash"
+        case .rename: return title == "Rename"
         }
     }
 

@@ -68,6 +68,7 @@ extension Workspace {
             AppCommand("Move to Trash", "F8 or ⌘⌫", "trash", enabled: chosen) { [self] in begin(.trash) },
             AppCommand("Delete Permanently", "⇧F8 or ⌥⌘⌫", "trash.slash", enabled: chosen) { [self] in begin(.delete) },
             AppCommand("Rename", "⇧F6 or ⌥⌘R", "character.cursor.ibeam", enabled: idle) { panel.beginRename() },
+            AppCommand("Multi-Rename", "⌘⇧R", "text.cursor", enabled: chosen) { [self] in beginRename() },
             AppCommand("Undo Rename", "⌘Z", "arrow.uturn.backward") { [self] in desktop.undo() },
             AppCommand("Show Actions", "⇧F10 or ⌥⌘M", "ellipsis.circle") { [self] in desktop.showActions() },
             AppCommand("Copy Files", "⌘C", "doc.on.clipboard", enabled: chosen) { [self] in

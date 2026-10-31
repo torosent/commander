@@ -20,6 +20,8 @@ public final class Workspace {
     public let jobs = JobQueue()
     /// Shown in the panel opposite the active one.
     public private(set) var viewer: Viewer?
+    /// The multi-rename screen, which takes the place of the panels while open.
+    public private(set) var renameSession: RenameSession?
     public private(set) var isPaletteOpen = false
     /// The command line command still running.
     public private(set) var runningCommand: String?
@@ -32,6 +34,8 @@ public final class Workspace {
 
     @ObservationIgnored public var openFile: @MainActor (URL) -> Void = { _ in }
     @ObservationIgnored public var desktop = Desktop()
+    /// The window's, handed over by the table.
+    @ObservationIgnored public weak var undoManager: UndoManager?
     @ObservationIgnored private var process: Process?
     @ObservationIgnored private var wasStopped = false
     @ObservationIgnored private var commandTask: Task<Void, Never>?
@@ -65,16 +69,18 @@ public final class Workspace {
     }
 
     private func finished(_ report: JobReport) {
-        for panel in panels { panel.refresh() }
+        for panel in panels { panel.refresh(following: report.renames) }
+        let isUndoable = !report.renames.isEmpty && !report.isUndo
+        if isUndoable { registerUndo(of: report.renames) }
         if report.needsAttention {
             reports.append(report)
         } else {
-            say(report.summary)
+            say(isUndoable ? "\(report.summary) Press ⌘Z to undo." : report.summary)
         }
     }
 
     public var isTyping: Bool {
-        isGoingToPath || patternBar != nil || isCommandLineFocused || isPaletteOpen || panels.contains { $0.edit != nil }
+        isGoingToPath || patternBar != nil || isCommandLineFocused || isPaletteOpen || renameSession != nil || panels.contains { $0.edit != nil }
     }
 
     public var session: Session {
@@ -152,6 +158,7 @@ public final class Workspace {
     func folderChanged(in panel: Panel) {
         if patternBar?.panel === panel { cancelPattern() }
         if let pending, pending.source === panel || pending.destination === panel { cancelOperation() }
+        if renameSession?.panel === panel { cancelRename() }
     }
 
     // MARK: Operations
@@ -265,9 +272,55 @@ public final class Workspace {
         returnFocus()
     }
 
+    // MARK: Multi-rename
+
+    /// Opens on the marked files, or the cursor's. Folders are left out, but packages count as files.
+    public func beginRename() {
+        guard pending == nil, planning == nil, renameSession == nil, patternBar == nil, !isGoingToPath,
+              !panels.contains(where: { $0.edit != nil }) else { return }
+        let files = active.selectionEntries.filter { !$0.opensAsFolder }
+        guard !files.isEmpty else { return say("Mark the files to rename first.") }
+        if viewer != nil { closeViewer() }
+        renameSession = RenameSession(panel: active, files: files)
+    }
+
+    public func cancelRename() {
+        renameSession = nil
+        returnFocus()
+    }
+
+    public func runRename() {
+        guard let session = renameSession, session.canRun else { return }
+        cancelRename()
+        // Marks stay for now. If this fails the set is still marked, and if not, the refresh drops them.
+        jobs.add(session.preview, choice: .replace)
+    }
+
+    private func registerUndo(of renames: [FileRename]) {
+        undoManager?.registerUndo(withTarget: self) { workspace in
+            MainActor.assumeIsolated { workspace.reverse(renames) }
+        }
+        undoManager?.setActionName("Multi-Rename")
+    }
+
+    /// Runs in the queue like any rename, so it waits for a job using these files and shows its progress.
+    /// Redo is registered here, because the undo manager only takes it during the undo.
+    private func reverse(_ renames: [FileRename]) {
+        let back = renames.map { FileRename(from: $0.to, to: $0.from) }
+        registerUndo(of: back)
+        let items = back.map { rename in
+            let file = FileEntry(url: rename.from, fileName: rename.from.lastPathComponent, size: nil, modified: nil, isDirectory: false)
+            return PlannedItem(source: file, target: rename.to, existing: nil)
+        }
+        var preview = OperationPreview(kind: .rename, folder: back.first?.to.deletingLastPathComponent(), items: items, alreadyThere: 0)
+        preview.isUndo = true
+        jobs.add(preview, choice: .replace)
+    }
+
     // MARK: Palette
 
     public func openPalette() {
+        guard renameSession == nil else { return }
         isPaletteOpen = true
     }
 
@@ -508,6 +561,15 @@ public final class Panel {
 
     public func refresh() {
         load(cursor: cursorEntry?.url)
+    }
+
+    /// Refreshes with the cursor staying on its file if a rename gave it a new name.
+    func refresh(following renames: [FileRename]) {
+        guard let cursor = cursorEntry?.url, let folder = renames.first?.from.deletingLastPathComponent(),
+              FileNames.realPath(folder) == FileNames.realPath(location) else { return refresh() }
+        // By name, because one folder can have several paths.
+        let key = FileNames.key(cursor)
+        load(cursor: renames.first { FileNames.key($0.from) == key }?.to ?? cursor)
     }
 
     func loadSaved() {

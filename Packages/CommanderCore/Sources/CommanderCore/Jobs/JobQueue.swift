@@ -38,6 +38,9 @@ public struct JobReport: Sendable {
     public var keptNewer = 0
     public var failures: [(name: String, reason: String)] = []
     public var wasStopped = false
+    /// What a finished rename did, so it can be undone.
+    public var renames: [FileRename] = []
+    public var isUndo = false
 
     /// Anything the user should see and dismiss rather than a passing note.
     public var needsAttention: Bool { !failures.isEmpty || keptNewer > 0 || wasStopped }
@@ -48,8 +51,9 @@ public struct JobReport: Sendable {
         case .move: "Moved"
         case .trash: "Moved to Trash:"
         case .delete: "Deleted"
+        case .rename: "Renamed"
         }
-        var text = "\(verb) \(succeeded) item\(succeeded == 1 ? "" : "s")."
+        var text = kind == .rename && succeeded == 0 ? "Nothing was renamed." : "\(verb) \(succeeded) item\(succeeded == 1 ? "" : "s")."
         if wasStopped { text = "Stopped. " + text }
         if skipped > 0 { text += " \(skipped) skipped." }
         if keptNewer > 0 { text += " \(keptNewer) newer file\(keptNewer == 1 ? "" : "s") kept." }
@@ -57,6 +61,17 @@ public struct JobReport: Sendable {
             text += " \(failures.count) failed: \(first.name): \(first.reason)"
         }
         return text
+    }
+}
+
+extension JobReport {
+    init(_ result: RenameResult) {
+        self.init(kind: .rename)
+        renames = result.done
+        succeeded = result.done.count
+        wasStopped = result.wasStopped
+        if let failure = result.failure { failures.append(failure) }
+        failures += result.stranded.map { ($0.name, "It's now called \($0.now).") }
     }
 }
 
@@ -123,6 +138,12 @@ public final class JobQueue {
     }
 
     private nonisolated static func perform(_ preview: OperationPreview, _ choice: ConflictChoice, _ control: JobControl) -> JobReport {
+        if preview.kind == .rename {
+            let steps = preview.items.compactMap { item in item.target.map { FileRename(from: item.source.url, to: $0) } }
+            var report = JobReport(RenameEngine.run(steps, control: control))
+            report.isUndo = preview.isUndo
+            return report
+        }
         var report = JobReport(kind: preview.kind)
         let engine = CopyEngine(control: control)
         let sizes = measure(preview, choice, control)
@@ -142,6 +163,8 @@ public final class JobQueue {
                 case .delete:
                     // Removes a link rather than what it points to.
                     try FileManager.default.removeItem(at: item.source.url)
+                case .rename:
+                    break
                 case .copy, .move:
                     guard let target = preview.destination(of: item, choice) else {
                         report.skipped += 1

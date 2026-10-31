@@ -10,10 +10,14 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             TitleStrip(workspace: workspace)
-            HStack(spacing: 0) {
-                side(0)
-                KeyColumn(workspace: workspace)
-                side(1)
+            if let session = workspace.renameSession {
+                MultiRenameView(workspace: workspace, session: session)
+            } else {
+                HStack(spacing: 0) {
+                    side(0)
+                    KeyColumn(workspace: workspace)
+                    side(1)
+                }
             }
             StatusBar(workspace: workspace)
             CommandLineBar(workspace: workspace)
@@ -95,7 +99,9 @@ private struct StatusBar: View {
 
     var body: some View {
         Group {
-            if let pending = workspace.pending {
+            if let session = workspace.renameSession {
+                RenameBar(workspace: workspace, session: session)
+            } else if let pending = workspace.pending {
                 OperationBar(workspace: workspace, pending: pending)
             } else if workspace.isGoingToPath {
                 GoToBar(workspace: workspace)
@@ -146,6 +152,7 @@ enum JobText {
         case .move: "Moving"
         case .trash: "Moving to Trash"
         case .delete: "Deleting"
+        case .rename: "Renaming"
         }
     }
 }
@@ -215,6 +222,7 @@ private struct OperationBar: View {
         case .move: "Move"
         case .trash: "Trash"
         case .delete: "Delete"
+        case .rename: "Rename"
         }
     }
 
@@ -223,12 +231,13 @@ private struct OperationBar: View {
         case .copy: Theme.rgb(0x3FA34D)
         case .move: Theme.rgb(0xB88A00)
         case .trash, .delete: Theme.rgb(0xD8412F)
+        case .rename: Theme.cursor
         }
     }
 
     private var title: String {
         switch preview.kind {
-        case .copy, .move: "\(verb) to \(preview.folder?.lastPathComponent ?? "")"
+        case .copy, .move, .rename: "\(verb) to \(preview.folder?.lastPathComponent ?? "")"
         case .trash: "Move \(items) to Trash"
         case .delete: "Permanently delete \(items)"
         }
@@ -240,7 +249,7 @@ private struct OperationBar: View {
         switch preview.kind {
         case .trash: parts.append("You can restore these from the Trash")
         case .delete: parts.append("This can't be undone")
-        case .copy, .move:
+        case .copy, .move, .rename:
             if preview.items.count > conflicts { parts.append("\(preview.items.count - conflicts) new") }
             if conflicts > 0 {
                 let what = switch pending.choice {
