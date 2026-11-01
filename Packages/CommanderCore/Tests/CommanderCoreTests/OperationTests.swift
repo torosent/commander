@@ -358,7 +358,7 @@ import Testing
         left.navigate(to: temp.url.appending(path: "b"))
         await left.loaded()
         #expect(left.edit == nil)
-        #expect(try left.commitEdit("two") == nil)
+        try left.commitEdit("two")
         #expect(FileNames.exists(file))
     }
 
@@ -614,19 +614,185 @@ import Testing
 
     @Test func renameThenUndo() async throws {
         let temp = try TempFolder()
-        let (_, left, _) = try await setup(temp)
+        let (app, left, _) = try await setup(temp)
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        app.undoManager = undo
         let file = try temp.file("a/old.txt")
         await reload(left)
         left.setCursor(1)
         left.beginRename()
         #expect(left.edit?.text == "old.txt")
-        let rename = try #require(try left.commitEdit("new.txt"))
+        undo.beginUndoGrouping()
+        try left.commitEdit("new.txt")
+        undo.endUndoGrouping()
         await left.loaded()
         #expect(left.cursorEntry?.fileName == "new.txt")
         #expect(!FileNames.exists(file))
-        _ = try left.undo(rename)
+        #expect(undo.undoActionName == "Rename")
+        undo.undo()
+        await app.jobs.finished()
         await left.loaded()
         #expect(left.cursorEntry?.fileName == "old.txt")
+        undo.redo()
+        await app.jobs.finished()
+        await left.loaded()
+        #expect(left.cursorEntry?.fileName == "new.txt")
+    }
+
+    @Test func undoingARenameWaitsForTheJobUsingTheFile() async throws {
+        let temp = try TempFolder()
+        let (app, left, right) = try await setup(temp)
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        app.undoManager = undo
+        try temp.file("a/old", bytes: 40_000_000)
+        await reload(left)
+        left.setCursor(1)
+        left.beginRename()
+        undo.beginUndoGrouping()
+        try left.commitEdit("new")
+        undo.endUndoGrouping()
+        await left.loaded()
+        app.begin(.copy)
+        await app.planned()
+        app.runOperation()
+        undo.undo()
+        await app.jobs.finished()
+        await reload(left, right)
+        #expect(FileNames.exists(temp.url.appending(path: "a/old")))
+        #expect(FileNames.exists(temp.url.appending(path: "b/new")))
+        #expect(app.report == nil)
+    }
+
+    /// Files in `a`, planned as one move to a real second volume.
+    private func looseMove(_ count: Int, _ temp: TempFolder, to image: DiskImage) throws -> OperationPreview {
+        let files = try (0..<count).map { try temp.file("a/f\($0)") }
+        return try OperationPreview.plan(.move, sources: files.compactMap(LocalSource.entry), into: image.mount)
+    }
+
+    @Test func aMoveOfLooseFilesSharesOneDiskSync() throws {
+        let temp = try TempFolder()
+        let image = try DiskImage(format: "APFS")
+        let preview = try looseMove(100, temp, to: image)
+        let control = JobControl()
+        let report = JobQueue.perform(preview, .skip, control)
+        #expect(report.succeeded == 100)
+        #expect(control.snapshot.syncs == 1)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: temp.url.appending(path: "a").path).isEmpty)
+    }
+
+    @Test func aBigMoveSyncsOnceABatch() throws {
+        let temp = try TempFolder()
+        let image = try DiskImage(format: "APFS")
+        let preview = try looseMove(CopyEngine.settleBatch + 1, temp, to: image)
+        let control = JobControl()
+        _ = JobQueue.perform(preview, .skip, control)
+        #expect(control.snapshot.syncs == 2)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: temp.url.appending(path: "a").path).isEmpty)
+    }
+
+    @Test func stoppingAMoveLeavesEachFileOnOneSide() async throws {
+        let temp = try TempFolder()
+        let image = try DiskImage(format: "APFS")
+        let preview = try looseMove(400, temp, to: image)
+        let control = JobControl()
+        let job = Task.detached { JobQueue.perform(preview, .skip, control) }
+        // Its own thread, because everything else in a test run can stall for longer than this job takes.
+        Thread.detachNewThread {
+            while control.snapshot.items < 5 {}
+            control.cancel()
+        }
+        let report = await job.value
+        #expect(report.wasStopped)
+        for index in 0..<400 {
+            let isThere = FileNames.exists(temp.url.appending(path: "a/f\(index)"))
+            #expect(isThere != FileNames.exists(image.mount.appending(path: "f\(index)")))
+        }
+    }
+
+    @Test func aFailedFileDoesntStopTheRestOfAMove() async throws {
+        let temp = try TempFolder()
+        let left = try temp.folder("a")
+        let image = try DiskImage(format: "APFS")
+        let app = Workspace(left: left, right: image.mount)
+        await reload(app.panels[0], app.panels[1])
+        for name in ["one", "two", "three"] { try temp.file("a/\(name)") }
+        await reload(app.panels[0])
+        app.panels[0].invertMarks()
+        app.begin(.move)
+        await app.planned()
+        // Locked after the preview, so the job has to find it.
+        let locked = temp.url.appending(path: "a/two")
+        chflags(locked.path, UInt32(UF_IMMUTABLE))
+        defer { chflags(locked.path, 0) }
+        app.runOperation()
+        await app.jobs.finished()
+        for name in ["one", "three"] {
+            #expect(!FileNames.exists(left.appending(path: name)))
+            #expect(FileNames.exists(image.mount.appending(path: name)))
+        }
+        #expect(FileNames.exists(locked))
+        #expect(!FileNames.exists(image.mount.appending(path: "two")))
+        #expect(app.report?.failures.map(\.name) == ["two"])
+    }
+
+    @Test func thePaletteWontCopyFromInsideAnArchive() async throws {
+        let temp = try TempFolder()
+        let (app, left, _) = try await setup(temp)
+        var copied: [URL] = []
+        app.desktop.copyFiles = { copied = $0 }
+        let archive = temp.url.appending(path: "a/made.zip")
+        let file = try temp.file("a/one")
+        _ = try ArchiveWriter().compress([file], to: archive, format: .zip)
+        await reload(left)
+        app.copyFiles(left.selectionEntries, in: left)
+        #expect(copied.isEmpty)
+        left.navigate(to: archive)
+        await left.loaded()
+        left.setCursor(1)
+        app.copyFiles(left.selectionEntries, in: left)
+        #expect(copied.isEmpty)
+        #expect(app.message == "Copy files out of an archive with F5.")
+    }
+
+    @Test func theRenameKeyRenamesAFolderInPlaceAndCanUndo() async throws {
+        let temp = try TempFolder()
+        let (app, left, _) = try await setup(temp)
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        app.undoManager = undo
+        try temp.file("a/project/inside")
+        await reload(left)
+        left.setCursor(1)
+        app.beginRename()
+        #expect(app.renameSession == nil)
+        #expect(left.edit?.text == "project")
+        undo.beginUndoGrouping()
+        try left.commitEdit("renamed")
+        undo.endUndoGrouping()
+        await left.loaded()
+        #expect(left.cursorEntry?.fileName == "renamed")
+        #expect(FileNames.exists(temp.url.appending(path: "a/renamed/inside")))
+        undo.undo()
+        await app.jobs.finished()
+        await left.loaded()
+        #expect(left.cursorEntry?.fileName == "project")
+        #expect(FileNames.exists(temp.url.appending(path: "a/project/inside")))
+    }
+
+    @Test func theRenameKeyNeedsTheFolderUnderTheCursor() async throws {
+        let temp = try TempFolder()
+        let (app, left, _) = try await setup(temp)
+        try temp.folder("a/one")
+        try temp.folder("a/two")
+        await reload(left)
+        left.setCursor(1)
+        left.toggleMark()
+        left.setCursor(2)
+        app.beginRename()
+        #expect(left.edit == nil)
+        #expect(app.message == "Mark the files to rename first.")
     }
 
     @Test func renameNeverReplacesAFile() async throws {

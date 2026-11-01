@@ -534,7 +534,12 @@ public final class Workspace {
         let files = active.selectionEntries.filter { !$0.opensAsFolder }
         guard !active.isInsideArchive else { return say(OperationRefusal.readOnlyArchive.message) }
         guard !active.isResults else { return say(Panel.openFolderToRename) }
-        guard !files.isEmpty else { return say("Mark the files to rename first.") }
+        guard !files.isEmpty else {
+            // The Rename key leads here too, so a lone folder on the cursor is renamed in place.
+            let chosen = active.selectionEntries
+            if chosen.count == 1, chosen.first?.id == active.cursorEntry?.id { return active.beginRename() }
+            return say("Mark the files to rename first.")
+        }
         if viewer != nil { closeViewer() }
         renameSession = RenameSession(panel: active, files: files)
     }
@@ -551,11 +556,11 @@ public final class Workspace {
         jobs.add(session.preview, choice: .replace)
     }
 
-    private func registerUndo(of renames: [FileRename]) {
+    fileprivate func registerUndo(of renames: [FileRename]) {
         undoManager?.registerUndo(withTarget: self) { workspace in
             MainActor.assumeIsolated { workspace.reverse(renames) }
         }
-        undoManager?.setActionName("Multi-Rename")
+        undoManager?.setActionName(renames.count == 1 ? "Rename" : "Multi-Rename")
     }
 
     /// Runs in the queue like any rename, so it waits for a job using these files and shows its progress.
@@ -717,6 +722,13 @@ public final class Workspace {
     }
 
     // MARK: Clipboard
+
+    /// Puts files on the clipboard. What's in an archive has no real path for another app to read.
+    public func copyFiles(_ entries: [FileEntry], in panel: Panel) {
+        guard !panel.isInsideArchive else { return say("Copy files out of an archive with F5.") }
+        guard !entries.isEmpty else { return }
+        desktop.copyFiles(entries.map(\.url))
+    }
 
     /// Starts a copy or move of files from the clipboard into the active panel.
     public func paste(_ urls: [URL], move: Bool) {
@@ -1013,6 +1025,7 @@ public final class Panel {
         }
         if rows.first?.isParent == true, rows[0].url.path == url.path { return 0 }
         let key = FileNames.key(url)
+        if rows.indices.contains(cursorIndex), !rows[cursorIndex].isParent, FileNames.key(rows[cursorIndex].url) == key { return cursorIndex }
         return rows.firstIndex { !$0.isParent && FileNames.key($0.url) == key }
     }
 
@@ -1120,9 +1133,9 @@ public final class Panel {
         }
     }
 
-    /// Finishes typing a name. On success it returns any rename made, so it can be undone.
-    public func commitEdit(_ text: String) throws(EditFailure) -> FileRename? {
-        guard let state = edit else { return nil }
+    /// Finishes typing a name.
+    public func commitEdit(_ text: String) throws(EditFailure) {
+        guard let state = edit else { return }
         if let problem = FileNames.problem(with: text) { throw EditFailure(message: problem) }
         let target = location.appending(path: text)
         switch state.kind {
@@ -1134,12 +1147,8 @@ public final class Panel {
             }
             cancelEdit()
             load(cursor: target)
-            return nil
         case .rename(let source):
-            guard source.lastPathComponent != text else {
-                cancelEdit()
-                return nil
-            }
+            guard source.lastPathComponent != text else { return cancelEdit() }
             do throws(OperationError) {
                 try FileNames.rename(source, to: target)
             } catch {
@@ -1147,15 +1156,8 @@ public final class Panel {
             }
             cancelEdit()
             load(cursor: target)
-            return FileRename(from: source, to: target)
+            workspace?.registerUndo(of: [FileRename(from: source, to: target)])
         }
-    }
-
-    /// Reverses a rename. Returns the rename that undoes it, for redo.
-    public func undo(_ rename: FileRename) throws(OperationError) -> FileRename {
-        try FileNames.rename(rename.to, to: rename.from)
-        load(cursor: rename.from)
-        return FileRename(from: rename.to, to: rename.from)
     }
 
     // MARK: Cursor

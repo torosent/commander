@@ -127,6 +127,15 @@ private func find(
         #expect(result.outcome.unreadable == 1)
     }
 
+    @Test func aFileThatCantBeReadIsCountedOnce() throws {
+        let temp = try TempFolder()
+        let file = try temp.file("secret.md")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        let result = find(temp.url, name: "*.md", contains: "text", spotlight: [URL(filePath: try #require(FileNames.realPath(file)))])
+        #expect(result.outcome.unreadable == 1)
+    }
+
     @Test func iCloudPlaceholdersAreNeverRead() throws {
         var info = stat()
         #expect(!FileFinder.isPlaceholder(info))

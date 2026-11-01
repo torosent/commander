@@ -478,7 +478,7 @@ function renameAll(files,o,others=[]){
  console.assert(renameAll(f,{...o,find:'(',rx:true})[0].err,'bad regex');
  console.assert(renameAll(f,o,[mk('a','txt','1 KB','28 Oct 16:42')])[0].err,'existing name')}
 const rnRows=()=>{const t=A(),sel=S.rn.files;return renameAll(sel,S.rn,t.items.filter(i=>!sel.includes(i)))};
-function startRename(){press('rename');if(S.mode!=='browse')return;if(A().ro||A().res)return say('Open the folder to rename these files.');const files=selection().filter(i=>!i.dir);if(!files.length)return say('Mark the files to rename first.');
+function startRename(){press('rename');if(S.mode!=='browse')return;if(A().ro||A().res)return say('Open the folder to rename these files.');const chosen=selection(),files=chosen.filter(i=>!i.dir);if(!files.length){if(chosen.length===1&&chosen[0]===A().cur)return startIR();return say('Mark the files to rename first.')}
   S.view=false;S.msg=null;S.rn={files,name:'[N]-[YMD]',ext:'[E]',find:'',rep:'',rx:false,kase:'keep',start:1,step:1,pad:2,top:0};S.mode='rename';
   $('rnOpts').innerHTML=`<label>Name <input type="text" class="mono" id="rName" data-o="name" value="[N]-[YMD]" size="20" spellcheck="false"></label><label>Ext <input type="text" class="mono" data-o="ext" value="[E]" size="7" spellcheck="false"></label>
   <label>Find <input type="text" data-o="find" size="12" spellcheck="false"></label><label>Replace <input type="text" data-o="rep" size="12" spellcheck="false"></label><label><input type="checkbox" data-o="rx"> Regex</label>

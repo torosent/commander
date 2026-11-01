@@ -72,7 +72,7 @@ extension Workspace {
             AppCommand("Undo Rename", "⌘Z", "arrow.uturn.backward") { [self] in desktop.undo() },
             AppCommand("Show Actions", "⇧F10 or ⌥⌘M", "ellipsis.circle") { [self] in desktop.showActions() },
             AppCommand("Copy Files", "⌘C", "doc.on.clipboard", enabled: chosen) { [self] in
-                desktop.copyFiles(panel.selectionEntries.map(\.url))
+                copyFiles(panel.selectionEntries, in: panel)
             },
             AppCommand("Paste Files", "⌘V", "doc.on.clipboard.fill", enabled: idle) { [self] in paste(desktop.pastedFiles(), move: false) },
             AppCommand("Compress to Other Panel", "⌘⇧P", "archivebox", enabled: chosen) { [self] in beginCompress() },

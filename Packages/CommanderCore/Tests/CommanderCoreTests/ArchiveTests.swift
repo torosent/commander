@@ -491,6 +491,18 @@ private let rarBase64 = "UmFyIRoHAM+QcwAADQAAAAAAAADhBHQAgCoACgAAAAoAAAADXVXQFwA
         #expect(quarantined(unrelated) == nil)
     }
 
+    @Test func markingStopsAtALinkInTheTarget() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.tar")
+        try craft(archive, [.file("link/Demo.app/run", "new")])
+        #expect(setxattr(archive.path, quarantine, "0081;", 5, 0, 0) == 0)
+        let outside = try temp.folder("outside/Demo.app")
+        let out = try temp.folder("out")
+        try FileManager.default.createSymbolicLink(atPath: out.appending(path: "link").path, withDestinationPath: "../outside")
+        _ = try ArchiveExtractor().extract(archive, to: out, conflict: .replace)
+        #expect(quarantined(outside) == nil)
+    }
+
     @Test func aDriveWithoutAttributesStillGetsTheWarning() throws {
         let temp = try TempFolder()
         let archive = temp.url.appending(path: "a.tar")

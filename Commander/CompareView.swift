@@ -223,6 +223,7 @@ private struct CompareRowView: View {
         let reason = switch row.verdict {
         case .clash: ", a file on one side and a folder on the other"
         case .unreadable: ", can't be read"
+        case .notDownloaded: ", not downloaded yet"
         case .nameTaken: ", the name is taken on the other side"
         default: ""
         }
@@ -256,6 +257,7 @@ private struct CompareRowView: View {
         return switch row.verdict {
         case .clash: "file and folder"
         case .unreadable: "can't be read"
+        case .notDownloaded: "not downloaded"
         case .nameTaken: "name taken"
         case .different where isByContent: "contents differ"
         default: ""
@@ -272,7 +274,7 @@ private struct CompareRowView: View {
         case .none:
             if row.verdict == .same, !row.isHeader {
                 mark("equal")
-            } else if [.clash, .unreadable, .nameTaken].contains(row.verdict) {
+            } else if [.clash, .unreadable, .notDownloaded, .nameTaken].contains(row.verdict) {
                 mark("exclamationmark")
             }
         }

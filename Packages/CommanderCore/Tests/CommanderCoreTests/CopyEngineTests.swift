@@ -259,6 +259,52 @@ private func isLocked(_ url: URL) -> Bool {
         #expect(FileManager.default.fileExists(atPath: source.path))
     }
 
+    @Test func aMergeThatReplacesFilesSyncsOnce() throws {
+        let temp = try TempFolder()
+        let source = try temp.folder("source")
+        let target = try temp.folder("target")
+        for index in 0..<5 {
+            try temp.file("source/\(index)", bytes: 3)
+            let old = try temp.file("target/\(index)", bytes: 1)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: old.path)
+        }
+        let control = JobControl()
+        _ = try CopyEngine(control: control).move(source, to: target, conflict: .replace)
+        #expect(control.snapshot.syncs == 1)
+        #expect(try Data(contentsOf: target.appending(path: "4")).count == 3)
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test func aFileThatCantBeOpenedStillReplacesByRename() throws {
+        let temp = try TempFolder()
+        let source = try temp.file("source", bytes: 3)
+        let target = try temp.file("target", bytes: 1)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: target.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: source.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: target.path) }
+        _ = try CopyEngine().move(source, to: target, conflict: .replace)
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(FileManager.default.fileExists(atPath: target.path))
+    }
+
+    @Test func aSourceThatChangedDuringTheCopyIsKept() throws {
+        let temp = try TempFolder()
+        let source = try temp.file("log", bytes: 3_000_000)
+        let image = try DiskImage(format: "APFS")
+        let target = image.mount.appending(path: "log")
+        var engine = CopyEngine()
+        let changed = Locked(false)
+        engine.onProgress = {
+            if !changed.value {
+                changed.set(true)
+                truncate(source.path, 1)
+            }
+        }
+        let report = try engine.move(source, to: target, conflict: .skip)
+        #expect(report.failures.first?.reason == "The copy doesn't match, so the original was kept.")
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
     @Test func aFolderHoldingALockedFileMovesTheRest() throws {
         let temp = try TempFolder()
         let folder = try temp.folder("folder")

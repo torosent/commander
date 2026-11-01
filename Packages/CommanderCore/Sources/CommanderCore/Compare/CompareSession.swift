@@ -170,6 +170,7 @@ public final class CompareSession {
         switch action {
         case _ where row.verdict == .clash: "A file and a folder can't replace each other."
         case _ where row.verdict == .unreadable: "This file couldn't be read, so it wasn't compared."
+        case _ where row.verdict == .notDownloaded: "This file hasn't been downloaded yet, so it wasn't compared."
         case .toRight where row.verdict == .nameTaken, .toLeft where row.verdict == .nameTaken:
             "The other side already has this name in a different case."
         case .toRight where row.left == nil, .toLeft where row.right == nil: "That side has nothing to copy."

@@ -29,6 +29,8 @@ public struct CompareRow: Identifiable, Sendable {
         case clash
         /// A folder that couldn't be listed or a file that couldn't be read, so it wasn't really compared.
         case unreadable
+        /// In the cloud, which reading would download, so it wasn't compared.
+        case notDownloaded
         /// On one side only, but the other side's volume sees its name as taken.
         case nameTaken
     }
@@ -210,6 +212,10 @@ public struct TreeComparer: Sendable {
         case .size:
             isSame = leftSide.size == rightSide.size
         case .content:
+            // Reading a cloud placeholder downloads it, and a compare shouldn't fill the disk.
+            if left.info.st_size == right.info.st_size, FileFinder.isPlaceholder(left.info) || FileFinder.isPlaceholder(right.info) {
+                return (.notDownloaded, .none)
+            }
             // Without reading both, nothing is known, and a date mustn't be left to suggest an overwrite.
             guard let same = try sameContent(left, right) else { return (.unreadable, .none) }
             isSame = same

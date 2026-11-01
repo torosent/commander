@@ -94,7 +94,10 @@ struct FileTable: NSViewRepresentable {
             table.onKey = { [weak table] event in view.handle(event, page: table?.visibleRows ?? 1) }
             table.onClick = { row, clicks in view.click(row: row, count: clicks) }
             table.onMarkAll = { view.workspace.panels[view.index].markAll() }
-            table.onCopy = { view.copyToPasteboard() }
+            table.onCopy = {
+                let panel = view.workspace.panels[view.index]
+                view.workspace.copyFiles(panel.selectionEntries, in: panel)
+            }
             table.onPaste = { view.workspace.paste(Pasteboard.fileURLs(), move: false) }
             table.onMenu = { [weak table] row in table.flatMap { view.menu(row: row, in: $0) } }
             table.dragURLs = { row in view.dragURLs(row: row) }
@@ -224,7 +227,7 @@ struct FileTable: NSViewRepresentable {
             let panel = view.workspace.panels[view.index]
             if committing {
                 do throws(EditFailure) {
-                    if let rename = try panel.commitEdit(editor.stringValue) { registerUndo(rename, panel, view.workspace) }
+                    try panel.commitEdit(editor.stringValue)
                 } catch {
                     view.workspace.say(error.message)
                     if staysOpenOnFailure { return }
@@ -234,21 +237,6 @@ struct FileTable: NSViewRepresentable {
                 panel.cancelEdit()
             }
             view.workspace.returnFocus()
-        }
-
-        private func registerUndo(_ rename: FileRename, _ panel: Panel, _ workspace: Workspace) {
-            guard let manager = table?.undoManager else { return }
-            manager.registerUndo(withTarget: panel) { [weak self] panel in
-                MainActor.assumeIsolated {
-                    do throws(OperationError) {
-                        let reverse = try panel.undo(rename)
-                        self?.registerUndo(reverse, panel, workspace)
-                    } catch {
-                        workspace.say(error.message)
-                    }
-                }
-            }
-            manager.setActionName("Rename")
         }
 
         // MARK: Drops
@@ -416,15 +404,6 @@ struct FileTable: NSViewRepresentable {
 }
 
 extension FileTable {
-    func copyToPasteboard() {
-        let panel = workspace.panels[index]
-        guard !panel.isInsideArchive else { return workspace.say("Copy files out of an archive with F5.") }
-        let urls = panel.selectionEntries.map(\.url)
-        guard !urls.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects(urls as [NSURL])
-    }
-
     /// A marked row drags all the marks. Any other row drags alone.
     func dragURLs(row: Int) -> [URL] {
         let panel = workspace.panels[index]
@@ -471,10 +450,7 @@ extension FileTable {
             menu.add("Extract to Other Panel", action: workspace.beginExtract)
         }
         guard !panel.isInsideArchive else { return menu }
-        menu.add("Copy") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.writeObjects(entries.map(\.url) as [NSURL])
-        }
+        menu.add("Copy") { workspace.copyFiles(entries, in: panel) }
         guard !panel.isResults else { return menu }
         if isMany {
             menu.add("Multi-Rename", action: workspace.beginRename)

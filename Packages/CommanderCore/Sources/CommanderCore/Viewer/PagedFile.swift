@@ -10,7 +10,7 @@ public enum ViewerError: Error, Equatable, Sendable {
 /// Reads a file of any size a window at a time. Nothing scans the whole file, so a multi-GB log opens
 /// at once. Plain reads rather than a memory map, because a mapped file that shrinks or whose volume
 /// goes away kills the process, and logs get rotated while they're being read.
-public final class PagedFile {
+public final class PagedFile: Sendable {
     public struct Row: Equatable, Sendable {
         public let offset: Int64
         public let text: String

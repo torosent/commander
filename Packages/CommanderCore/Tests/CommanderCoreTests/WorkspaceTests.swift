@@ -167,15 +167,13 @@ import Testing
         let panel = workspace.panels[0]
         panel.navigate(to: sub)
         await panel.loaded()
+        // Told as it's set, because a message clears itself and a busy test run can stall past that.
+        let wasTold = Locked(false)
+        withObservationTracking { _ = workspace.message } onChange: { wasTold.set(true) }
         try FileManager.default.removeItem(at: sub)
-        // Watched for as it appears, because a message clears itself and a busy test run can outlast it.
-        var wasTold = false
-        await settle(panel) {
-            wasTold = wasTold || workspace.message != nil
-            return wasTold && panel.location.lastPathComponent != "sub"
-        }
+        await settle(panel) { wasTold.value && panel.location.lastPathComponent != "sub" }
         #expect(panel.location.path == temp.url.path)
-        #expect(wasTold)
+        #expect(wasTold.value)
     }
 
     @Test func unreadableFolderShowsAFailure() async throws {

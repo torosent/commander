@@ -18,13 +18,15 @@ public final class Viewer {
     public private(set) var modified: Date?
     @ObservationIgnored private var followed: FileEntry?
     @ObservationIgnored private var isPinned = false
+    @ObservationIgnored private var opening: Task<Void, Never>?
+    @ObservationIgnored private var openingNotice: Task<Void, Never>?
 
     public init() {}
 
     /// Shows the cursor's file. The entry changes when the file does, so a saved file reloads.
     public func follow(_ entry: FileEntry?) {
         if isPinned, entry?.url == followed?.url { return }
-        guard entry != followed || (url == nil && notice == nil) else { return }
+        guard entry != followed || (url == nil && notice == nil && opening == nil) else { return }
         followed = entry
         isPinned = false
         guard let entry, !entry.isParent, !entry.isDirectory else {
@@ -34,25 +36,60 @@ public final class Viewer {
         if ArchivePath.split(entry.url)?.inner.isEmpty == false {
             return clear(title: entry.fileName, notice: "Copy this file out of the archive to view it.")
         }
-        load(entry.url, title: entry.fileName, modified: entry.modified)
+        let (url, name, modified) = (entry.url, entry.fileName, entry.modified)
+        // Off the main thread, because a sleeping drive can take seconds to answer. What's on show stays
+        // for a moment, as blanking the panel for each file passed would flicker.
+        stopOpening()
+        openingNotice = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            // Only over what's there, so a slow reload still keeps the view the user chose.
+            self?.title = name
+            self?.notice = "Opening…"
+        }
+        opening = Task { [weak self] in
+            // On a GCD thread, because a stuck open would hold one of the few that Swift's tasks share.
+            let opened = await withCheckedContinuation { (done: CheckedContinuation<Opened, Never>) in
+                DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: Self.open(url)) }
+            }
+            guard !Task.isCancelled else { return }
+            self?.show(url, opened, title: name, modified: modified)
+        }
+    }
+
+    /// Waits for the file being opened, if there is one.
+    public func loaded() async {
+        await opening?.value
     }
 
     /// Shows a file that isn't the cursor's, such as a command's output, until the cursor next moves.
     public func pin(_ url: URL, title: String, cursor: FileEntry?) {
         followed = cursor
         isPinned = true
-        load(url, title: title, modified: nil)
+        // At once, because the caller removes the file's name as soon as this returns.
+        show(url, Self.open(url), title: title, modified: nil)
     }
 
-    private func load(_ url: URL, title: String, modified: Date?) {
+    private typealias Opened = Result<(file: PagedFile, size: Int64, looksBinary: Bool), ViewerError>
+
+    private nonisolated static func open(_ url: URL) -> Opened {
+        do throws(ViewerError) {
+            let file = try PagedFile(url)
+            return .success((file, file.size, file.looksBinary))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func show(_ url: URL, _ opened: Opened, title: String, modified: Date?) {
         // Reloading the same file keeps the view the user chose.
         let kept = self.url == url ? mode : nil
         clear(title: title, notice: nil)
         self.url = url
         self.modified = modified
-        do throws(ViewerError) {
-            let opened = try PagedFile(url)
-            file = opened
+        switch opened {
+        case .success(let opened):
+            file = opened.file
             if Self.isMedia(url) {
                 mode = kept ?? .quickLook
             } else if opened.size == 0 {
@@ -60,12 +97,19 @@ public final class Viewer {
             } else {
                 mode = kept ?? (opened.looksBinary ? .hex : .text)
             }
-        } catch {
+        case .failure(let error):
             notice = error == .notDownloaded ? "This file hasn't been downloaded yet." : "This file can't be read."
         }
     }
 
+    private func stopOpening() {
+        opening?.cancel()
+        openingNotice?.cancel()
+        opening = nil
+    }
+
     private func clear(title: String, notice: String?) {
+        stopOpening()
         self.title = title
         self.notice = notice
         url = nil

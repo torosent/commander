@@ -65,17 +65,19 @@ public struct ArchiveExtractor: Sendable {
         }
         // A private control, because these are renames and progress already went by the archive read.
         let engine = CopyEngine(control: JobControl())
+        var moves = CopyEngine.Moves()
         for (item, selection) in zip(items, selections) {
             do throws(OperationError) {
                 guard FileNames.exists(selection.payload) else {
                     throw .unsupported(result.report.failures.first?.reason ?? "That item isn't in the archive.")
                 }
-                result.report.absorb(try engine.move(selection.payload, to: item.target, conflict: item.conflict, expected: item.existing))
+                result.report.absorb(try engine.transfer(selection.payload, to: item.target, conflict: item.conflict, expected: item.existing, moved: &moves))
                 result.problems.append(nil)
             } catch {
                 result.problems.append(error)
             }
         }
+        result.report.absorb(engine.settle(&moves))
         return result
     }
 
@@ -93,18 +95,24 @@ public struct ArchiveExtractor: Sendable {
         func apply(to url: URL) {
             if setxattr(url.path, name, mark, size, 0, XATTR_NOFOLLOW) != 0 { isMarked = false }
         }
-        func applyIfFolder(_ url: URL) {
+        /// Marks a folder a merge keeps. False if something else is there, which a merge doesn't go through.
+        func applyToKept(_ url: URL) -> Bool {
             var info = stat()
-            if lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR { apply(to: url) }
+            guard lstat(url.path, &info) == 0 else { return true }
+            guard info.st_mode & S_IFMT == S_IFDIR else { return false }
+            apply(to: url)
+            return true
         }
         for (payload, target) in places where FileNames.exists(payload) {
             apply(to: payload)
-            applyIfFolder(target)
+            // A link in the target could lead anywhere, so nothing is marked beyond one.
+            var stopped: String? = applyToKept(target) ? nil : ""
             // The walk stays out of symlinked folders, and each link takes the mark itself.
             guard let walk = FileManager.default.enumerator(atPath: payload.path) else { continue }
             for case let path as String in walk {
                 apply(to: payload.appending(path: path))
-                applyIfFolder(target.appending(path: path))
+                if let stopped, path.hasPrefix(stopped) { continue }
+                if !applyToKept(target.appending(path: path)) { stopped = path + "/" }
             }
         }
         return isMarked

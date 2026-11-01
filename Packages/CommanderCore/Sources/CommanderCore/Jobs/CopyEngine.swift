@@ -32,6 +32,8 @@ public final class JobControl: Sendable {
         public var total: Int64 = 0
         public var items = 0
         public var name = ""
+        /// Whole-volume disk syncs, each of which can take a moment.
+        public var syncs = 0
     }
 
     private let state = OSAllocatedUnfairLock(initialState: (cancelled: false, snapshot: Snapshot()))
@@ -47,6 +49,10 @@ public final class JobControl: Sendable {
 
     func add(bytes: Int64) {
         state.withLock { $0.snapshot.bytes += bytes }
+    }
+
+    func countSync() {
+        state.withLock { $0.snapshot.syncs += 1 }
     }
 
     func begin(_ name: String) {
@@ -294,13 +300,20 @@ public struct CopyEngine: Sendable {
     // MARK: Move
 
     /// A source whose copy is in place, or a folder that's been emptied. It goes once the copies are on disk.
-    private enum Moved {
+    enum Moved {
         case file(URL, copiedTo: URL)
         case folder(URL)
     }
 
     /// One disk sync per file makes a big folder ten times slower, so sources wait for a shared one.
-    private static let settleBatch = 1024
+    static let settleBatch = 1024
+
+    /// What a move still owes once its copies are placed. A job shares one, so it needs few disk syncs.
+    struct Moves {
+        var items: [Moved] = []
+        /// True once a sync has covered the sources, all of which were written before the job began.
+        var sourcesAreOnDisk = false
+    }
 
     /// The user's own Locked and append-only settings. The `SF_` versions belong to root.
     private static let lockFlags = UInt32(UF_IMMUTABLE | UF_APPEND)
@@ -314,7 +327,7 @@ public struct CopyEngine: Sendable {
     }
 
     public func move(_ source: URL, to target: URL, conflict: ConflictChoice, expected: PlannedItem.Existing? = nil) throws(OperationError) -> EngineReport {
-        var moved: [Moved] = []
+        var moved = Moves()
         do throws(OperationError) {
             var report = try transfer(source, to: target, conflict: conflict, expected: expected, moved: &moved)
             report.absorb(settle(&moved))
@@ -326,7 +339,8 @@ public struct CopyEngine: Sendable {
         }
     }
 
-    private func transfer(_ source: URL, to target: URL, conflict: ConflictChoice, expected: PlannedItem.Existing? = nil, moved: inout [Moved]) throws(OperationError) -> EngineReport {
+    /// Moves one item, leaving its sources in `moved` for `settle`, so a job can share one disk sync across many.
+    func transfer(_ source: URL, to target: URL, conflict: ConflictChoice, expected: PlannedItem.Existing? = nil, moved: inout Moves) throws(OperationError) -> EngineReport {
         var info = try status(of: source)
         if try isSameFile(&info, target) { throw .sameFile }
         // A locked source can't be removed, so a copy of it would leave the file on both sides.
@@ -337,6 +351,7 @@ public struct CopyEngine: Sendable {
         if exists, !isFolder, conflict != .replace { throw .alreadyExists }
         if !(isFolder && exists) {
             do throws(OperationError) {
+                if exists, !isFolder { secure(source, &moved) }
                 try rename(source, to: target, replacing: exists)
                 control.add(bytes: Int64(info.st_size))
                 return EngineReport()
@@ -348,12 +363,25 @@ public struct CopyEngine: Sendable {
             return try moveFolder(source, to: target, info: info, conflict: conflict, moved: &moved)
         }
         try copyLeaf(source, to: target, replacing: exists, info: info, expected: expected)
-        moved.append(.file(source, copiedTo: target))
+        moved.items.append(.file(source, copiedTo: target))
         return EngineReport()
     }
 
+    /// The same promise as `copyLeaf`: a power cut can't leave an empty file where a good one was.
+    private func secure(_ source: URL, _ moved: inout Moves) {
+        guard !moved.sourcesAreOnDisk else { return }
+        moved.sourcesAreOnDisk = syncVolume(of: source)
+        // A file this can't open can still be renamed, so that alone doesn't stop the move.
+        if !moved.sourcesAreOnDisk { try? flush(source) }
+    }
+
+    private func syncVolume(of url: URL) -> Bool {
+        control.countSync()
+        return sync_volume_np(url.path, SYNC_VOLUME_FULLSYNC | SYNC_VOLUME_WAIT) == 0
+    }
+
     /// Moves piece by piece, so a stop or a failure can't lose a file. Each one exists on one side or the other.
-    private func moveFolder(_ source: URL, to target: URL, info: stat, conflict: ConflictChoice, moved: inout [Moved]) throws(OperationError) -> EngineReport {
+    private func moveFolder(_ source: URL, to target: URL, info: stat, conflict: ConflictChoice, moved: inout Moves) throws(OperationError) -> EngineReport {
         var report = EngineReport()
         let created = !FileNames.exists(target)
         if created {
@@ -384,7 +412,7 @@ public struct CopyEngine: Sendable {
                     }
                 }
                 report.absorb(try transfer(child, to: childTarget, conflict: conflict, moved: &moved))
-                if moved.count >= Self.settleBatch { report.absorb(settle(&moved)) }
+                if moved.items.count >= Self.settleBatch { report.absorb(settle(&moved)) }
             } catch OperationError.cancelled {
                 throw .cancelled
             } catch {
@@ -392,17 +420,17 @@ public struct CopyEngine: Sendable {
             }
         }
         if created { copyAttributes(from: source, to: target) }
-        if report.failures.isEmpty, report.keptNewer == 0 { moved.append(.folder(source)) }
+        if report.failures.isEmpty, report.keptNewer == 0 { moved.items.append(.folder(source)) }
         return report
     }
 
     /// Gets the copies onto the disk, and only then removes their sources. Until that sync, a source
     /// may be the only one that would survive a power cut or a pulled drive.
-    private func settle(_ moved: inout [Moved]) -> EngineReport {
+    func settle(_ moved: inout Moves) -> EngineReport {
         var report = EngineReport()
-        let copy = moved.lazy.compactMap { if case .file(_, let target) = $0 { target } else { nil } }.first
-        let synced = copy.map { sync_volume_np($0.path, SYNC_VOLUME_FULLSYNC | SYNC_VOLUME_WAIT) == 0 } ?? true
-        for item in moved {
+        let copy = moved.items.lazy.compactMap { if case .file(_, let target) = $0 { target } else { nil } }.first
+        let synced = copy.map(syncVolume) ?? true
+        for item in moved.items {
             switch item {
             case .folder(let folder):
                 // Still holds anything that couldn't move, in which case it stays.
@@ -416,7 +444,7 @@ public struct CopyEngine: Sendable {
                 }
             }
         }
-        moved = []
+        moved.items = []
         return report
     }
 
@@ -470,18 +498,7 @@ public struct CopyEngine: Sendable {
 
     /// Without `replacing`, an existing target is an error rather than something to overwrite.
     private func rename(_ source: URL, to target: URL, replacing: Bool) throws(OperationError) {
-        if replacing {
-            guard Darwin.rename(source.path, target.path) == 0 else { throw .system(errno) }
-            return
-        }
-        if renamex_np(source.path, target.path, UInt32(RENAME_EXCL)) == 0 { return }
-        switch errno {
-        case EEXIST: throw .alreadyExists
-        case ENOTSUP, EINVAL:
-            // Some volumes, like FAT, lack the exclusive rename.
-            guard !FileNames.exists(target) else { throw .alreadyExists }
-            guard Darwin.rename(source.path, target.path) == 0 else { throw .system(errno) }
-        default: throw .system(errno)
-        }
+        guard replacing else { return try FileNames.rename(source, to: target) }
+        guard Darwin.rename(source.path, target.path) == 0 else { throw .system(errno) }
     }
 }

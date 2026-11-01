@@ -252,6 +252,7 @@ public enum FileNames {
             return
         }
         if renamex_np(source.path, target.path, UInt32(RENAME_EXCL)) == 0 { return }
+        // Some volumes, like FAT, lack the exclusive rename.
         guard errno == ENOTSUP || errno == EINVAL else { throw errno == EEXIST ? .alreadyExists : .system(errno) }
         guard Darwin.rename(source.path, target.path) == 0 else { throw .system(errno) }
     }

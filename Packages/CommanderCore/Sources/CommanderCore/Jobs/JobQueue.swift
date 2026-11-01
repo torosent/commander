@@ -141,7 +141,7 @@ public final class JobQueue {
         job.currentName = snapshot.name
     }
 
-    private nonisolated static func perform(_ preview: OperationPreview, _ choice: ConflictChoice, _ control: JobControl) -> JobReport {
+    nonisolated static func perform(_ preview: OperationPreview, _ choice: ConflictChoice, _ control: JobControl) -> JobReport {
         if preview.kind == .rename {
             let steps = preview.items.compactMap { item in item.target.map { FileRename(from: item.source.url, to: $0) } }
             var report = JobReport(RenameEngine.run(steps, control: control))
@@ -155,6 +155,7 @@ public final class JobQueue {
         let sizes = measure(preview, choice, control)
         control.expect(bytes: sizes.values.reduce(0, +))
         var settled: Int64 = 0
+        var moved = CopyEngine.Moves()
         for item in preview.items {
             guard !control.isCancelled else {
                 report.wasStopped = true
@@ -184,9 +185,10 @@ public final class JobQueue {
                     let conflict = item.existing == nil ? ConflictChoice.skip : choice
                     let result = preview.kind == .copy
                         ? try engine.copy(item.source.url, to: target, conflict: conflict, expected: item.existing)
-                        : try engine.move(item.source.url, to: target, conflict: conflict, expected: item.existing)
+                        : try engine.transfer(item.source.url, to: target, conflict: conflict, expected: item.existing, moved: &moved)
                     report.keptNewer += result.keptNewer
                     report.failures += result.failures
+                    if moved.items.count >= CopyEngine.settleBatch { report.failures += engine.settle(&moved).failures }
                 }
                 report.succeeded += 1
             } catch OperationError.cancelled {
@@ -199,6 +201,8 @@ public final class JobQueue {
             settled += sizes[item.source.url] ?? 0
             control.finishItem(settled: settled)
         }
+        // After a stop as well, which mustn't leave finished files on both sides.
+        report.failures += engine.settle(&moved).failures
         return report
     }
 

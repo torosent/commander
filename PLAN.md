@@ -250,7 +250,7 @@ Decided in M4:
 Decided in M5:
 
 - A rename is all or nothing. Any failure puts every file back, because a half-renamed set is harder to fix than an error.
-- Folders are left out of the marked set, as in the prototype, but packages count as files. Inline rename still handles a folder.
+- Folders are left out of the marked set, as in the prototype, but packages count as files. Inline rename still handles a folder, and the Rename key and ⌘⇧R go there when a lone folder is on the cursor.
 - Find, Replace and Case apply to the name, not the extension.
 
 ### M6: Archives

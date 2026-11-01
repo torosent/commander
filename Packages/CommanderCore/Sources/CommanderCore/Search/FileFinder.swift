@@ -117,7 +117,7 @@ public struct FileFinder: Sendable {
     }
 
     private func takeHits(_ pass: Pass) {
-        for url in hits.take() where !pass.isDone && reachable(url, pass) { pass.consider(url) }
+        for url in hits.take() where !pass.isDone && reachable(url, pass) { pass.consider(url, isHit: true) }
     }
 
     private func walk(_ root: URL, _ pass: Pass) {
@@ -225,17 +225,26 @@ public struct FileFinder: Sendable {
 
         var isDone: Bool { outcome.reachedLimit || finder.control.isCancelled }
 
-        func consider(_ url: URL) {
+        func consider(_ url: URL, isHit: Bool = false) {
+            guard matchesName(url.lastPathComponent) else { return }
             // By one Unicode form, because Spotlight and the walk needn't spell a path alike.
-            guard matchesName(url.lastPathComponent), seen.insert(url.path.precomposedStringWithCanonicalMapping).inserted else { return }
+            let path = url.path.precomposedStringWithCanonicalMapping
+            guard !seen.contains(path) else { return }
             if !needle.isEmpty {
                 guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { return }
                 guard let found = FileFinder.contains(url, needle, control: finder.control) else {
+                    seen.insert(path)
                     outcome.unreadable += 1
                     return
                 }
-                guard found else { return }
+                guard found else {
+                    // Hits are few, and remembering one saves reading it again when the walk gets there.
+                    if isHit { seen.insert(path) }
+                    return
+                }
             }
+            // Never every file read, or a search through file contents would hold every path on the disk.
+            seen.insert(path)
             guard !finder.control.isCancelled, let entry = LocalSource.entry(url) else { return }
             batch.append(entry)
             found += 1
