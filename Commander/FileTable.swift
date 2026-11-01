@@ -260,6 +260,9 @@ struct FileTable: NSViewRepresentable {
             guard let view, view.workspace.pending == nil, !view.workspace.panels[view.index].isResults else { return [] }
             if rows.indices.contains(row), operation == .on, rows[row].opensAsFolder {
                 tableView.setDropRow(row, dropOperation: .on)
+            } else if info.draggingSource as? NSTableView === tableView {
+                // These files are already in this folder, so there's nothing to land on.
+                return []
             } else {
                 tableView.setDropRow(-1, dropOperation: .on)
             }
@@ -586,6 +589,8 @@ final class KeyTable: NSTableView {
         [.copy, .move, .generic]
     }
 
+    private static let dragDistance: CGFloat = 5
+
     var onKey: (NSEvent) -> Bool = { _ in false }
     var onClick: (Int, Int) -> Void = { _, _ in }
     var onMarkAll: () -> Void = {}
@@ -650,8 +655,11 @@ final class KeyTable: NSTableView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let start = dragStart else { return }
+        // A hand always moves a little during a click, which mustn't turn it into a drag.
+        let (from, to) = (start.event.locationInWindow, event.locationInWindow)
+        guard hypot(to.x - from.x, to.y - from.y) >= Self.dragDistance else { return }
         dragStart = nil
-        let point = convert(start.event.locationInWindow, from: nil)
+        let point = convert(from, from: nil)
         let frame = NSRect(x: point.x - 16, y: point.y - 16, width: 32, height: 32)
         let items = dragURLs(start.row).map { url in
             let item = NSDraggingItem(pasteboardWriter: url as NSURL)
@@ -741,11 +749,43 @@ extension KeyTable: @preconcurrency QLPreviewPanelDataSource, @preconcurrency QL
     }
 }
 
-/// Scrolling stops on whole rows, so a row is never clipped at the top.
+/// Scrolling stops on whole rows, so a row is never clipped at the top. A trackpad moves freely until
+/// it lets go and then settles, because stepping a row at a time under the fingers judders.
 private final class RowSnappingClipView: NSClipView {
+    private var isTracking = false
+    private var isSettling = false
+
+    private func snapped(_ y: CGFloat) -> CGFloat {
+        (y / FileTable.rowHeight).rounded() * FileTable.rowHeight
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(trackingBegan), name: NSScrollView.willStartLiveScrollNotification, object: superview)
+        center.addObserver(self, selector: #selector(trackingEnded), name: NSScrollView.didEndLiveScrollNotification, object: superview)
+    }
+
+    @objc private func trackingBegan() {
+        isTracking = true
+    }
+
+    @objc private func trackingEnded() {
+        isTracking = false
+        isSettling = true
+        let origin = NSPoint(x: bounds.minX, y: snapped(bounds.minY))
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setBoundsOrigin(origin)
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.isSettling = false }
+        }
+    }
+
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var bounds = super.constrainBoundsRect(proposedBounds)
-        bounds.origin.y = (bounds.origin.y / FileTable.rowHeight).rounded() * FileTable.rowHeight
+        if !isTracking, !isSettling { bounds.origin.y = snapped(bounds.origin.y) }
         return bounds
     }
 

@@ -410,6 +410,9 @@ Decided in M9:
 - Increase Contrast is read directly from the system, because a theme forced in Settings is a plain appearance that wouldn't report it. Row bands have their own token, which stays put, so text on them gains contrast rather than losing it.
 - A folder-watcher refresh stands aside during a rename, because listing halfway through could leave the cursor on a neighbouring file. That bug dated from M5, and a rare test failure exposed it.
 - A short window drops the keys' printed names, so each key has a tooltip.
+- A row press becomes a file drag only after moving 5pt, because a click always moves a little. Without that, a click could start a drag over its own panel and highlight the whole table. A file also can't drop back into the folder it's already in.
+- A trackpad scrolls freely and settles on a whole row when it stops, because stepping 20pt at a time juddered. A mouse wheel still moves in whole rows.
+- The viewer keeps one Quick Look view for every file, because a new one showed black until its first page was ready.
 
 ## Open questions
 

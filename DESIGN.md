@@ -396,8 +396,8 @@ This record comes from an HTML prototype of a native SwiftUI and AppKit app, and
 - **Open With:** The prototype shows a flat labelled group of apps inside the context menu. It becomes a real submenu.
 - **Domed keys:** Drawn natively as a SwiftUI `ButtonStyle` with a radial gradient and shadows (`Commander/KeyColumn.swift`). The key's size, press travel and colour are settled; its rendering is not.
 - **Window and menus:** The prototype's title bar and traffic lights stand in for the native window, and it has no Mac menu bar. The native chrome wins.
-- **File panels:** `NSTableView` must hold the 20px rows and shared columns, and the app snaps panel height to whole rows.
-- **Themes and motion:** Follow the system light, dark, contrast and reduced motion settings. With reduced motion, key press transitions and row arrival are removed.
+- **File panels:** `NSTableView` must hold the 20px rows and shared columns, and the app snaps panel height to whole rows. A trackpad scrolls freely under the fingers, and the list settles on a whole row when it stops.
+- **Themes and motion:** Follow the system light, dark, contrast and reduced motion settings. With reduced motion, key press transitions, row arrival and the scroll settle are removed.
 
 ## Do's and Don'ts
 
@@ -410,7 +410,7 @@ This record comes from an HTML prototype of a native SwiftUI and AppKit app, and
 - **Do** preview the consequence as rows in the destination before confirming.
 - **Do** check every screen in both themes, using the same tokens.
 - **Do** size lists in whole 20px rows.
-- **Do** keep motion to short exponential ease-out on key press and row arrival, and remove it under reduced motion.
+- **Do** keep motion to short exponential ease-out on key press, row arrival and the scroll settle, and remove it under reduced motion.
 
 ### Don't:
 - **Don't** use green, yellow or red for success, warnings, validation, status, branding or emphasis.

@@ -50,7 +50,7 @@ struct ViewerPanel: View {
         if let notice = viewer.notice {
             Text(notice).foregroundStyle(Theme.dim)
         } else if viewer.mode == .quickLook, let url = viewer.url {
-            QuickLookView(url: url).id(viewer.modified)
+            QuickLookView(url: url, modified: viewer.modified)
         } else if let file = viewer.file {
             PagedView(file: file, url: viewer.url, mode: viewer.mode, focusTick: workspace.viewerFocusTick, workspace: workspace, viewer: viewer)
         }
@@ -71,16 +71,29 @@ struct ViewerPanel: View {
 
 private struct QuickLookView: NSViewRepresentable {
     let url: URL
+    let modified: Date?
+
+    final class Coordinator {
+        var modified: Date?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> QLPreviewView {
         QLPreviewView(frame: .zero, style: .normal) ?? QLPreviewView()
     }
 
+    /// One view stays for every file, because a new one shows black until its first page is ready.
     func updateNSView(_ view: QLPreviewView, context: Context) {
-        if view.previewItem?.previewItemURL != url { view.previewItem = url as NSURL }
+        if view.previewItem?.previewItemURL != url {
+            view.previewItem = url as NSURL
+        } else if context.coordinator.modified != modified {
+            view.refreshPreviewItem()
+        }
+        context.coordinator.modified = modified
     }
 
-    static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) {
+    static func dismantleNSView(_ view: QLPreviewView, coordinator: Coordinator) {
         view.close()
     }
 }
