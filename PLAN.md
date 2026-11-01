@@ -413,6 +413,7 @@ Decided in M9:
 - A row press becomes a file drag only after moving 5pt, because a click always moves a little. Without that, a click could start a drag over its own panel and highlight the whole table. A file also can't drop back into the folder it's already in.
 - A trackpad scrolls freely and settles on a whole row when it stops, because stepping 20pt at a time juddered. A mouse wheel still moves in whole rows.
 - The viewer keeps one Quick Look view for every file, because a new one showed black until its first page was ready.
+- The README's demo and screenshots come from the prototype, so no real files appear in public. They're labelled as the prototype.
 
 ## Open questions
 
@@ -424,4 +425,4 @@ None. Decided along the way: the domed keys are a SwiftUI `ButtonStyle`, macOS 2
 - **Laptop F-keys.** They need Fn or a system setting, so the ⌘ shortcuts must be first-class, not a fallback.
 - **Privacy prompts.** Unsandboxed apps still trigger them, and protected folders need Full Disk Access.
 - **Spotlight gaps.** External volumes are often unindexed, so Find Files needs the folder walker from the start.
-- **Unverified performance.** The 100k-file target is a goal. Nothing has been measured, and the prototype says nothing about native speed.
+- **Performance on other Macs.** A 100,000-file folder has been measured on one Mac only, and the prototype says nothing about native speed.
