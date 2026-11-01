@@ -414,7 +414,8 @@ function render(){
   if(S.mode==='rename') rnLists(); else if(S.mode==='compare') cpLists(); else {panel(0);panel(1);gutter()}
   bar(); if(S.op) S.op.fresh=false}
 
-function move(d){const t=A(),rows=rowsOf(S.active).filter(real),i=Math.max(0,rows.findIndex(r=>r.i===(t.cur||UP)));t.cur=rows[Math.max(0,Math.min(rows.length-1,i+d))].i;render()}
+function move(d,sh){const t=A(),rows=rowsOf(S.active).filter(real),i=Math.max(0,rows.findIndex(r=>r.i===(t.cur||UP)));if(sh)return extendTo(i+d);t.range=null;t.cur=rows[Math.max(0,Math.min(rows.length-1,i+d))].i;render()}
+function extendTo(to){const t=A(),rows=rowsOf(S.active).filter(real),n=Math.max(0,Math.min(rows.length-1,to)),R=t.range||(t.range={a:t.cur||UP,add:new Set}),a=Math.max(0,rows.findIndex(r=>r.i===R.a));R.add.forEach(i=>t.marked.delete(i));R.add.clear();rows.slice(Math.min(a,n),Math.max(a,n)+1).forEach(r=>{if(!r.i.up&&!t.marked.has(r.i)){t.marked.add(r.i);R.add.add(r.i)}});t.cur=rows[n].i;render()}
 function open(){const t=A(),i=t.cur||UP;
   if(t.res){if(!t.cur)return;const f=full(i);if(!gotoPath(i.where))return say('That folder is no longer open.');A().cur=A().items.find(x=>full(x)===f)||null;return render()}
   if(i.up){if(!t.stack.length)return say('This is the top folder in the demo.');return nav(t,x=>Object.assign(x,x.stack.pop()))}
@@ -590,7 +591,7 @@ document.addEventListener('dragstart',e=>{const b=e.target.closest?.('.tabs [dra
 document.addEventListener('dragover',e=>{if(S.tabDrag&&e.target.closest?.('.tabs'))e.preventDefault()});
 document.addEventListener('drop',e=>{const b=e.target.closest?.('.tabs [data-p]');if(!S.tabDrag||!b)return;e.preventDefault();const [f,i]=S.tabDrag,to=+b.dataset.p;S.tabDrag=null;moveTab(f,i,to,b.classList.contains('tnew')?S.panels[to].tabs.length:+b.dataset.v)});
 document.addEventListener('click',e=>{if(S.menu&&!e.target.closest('#menu'))closeMenu();if(S.ib&&!e.target.closest('#bar'))return;const a=e.target.closest('[data-a]');if(a&&a.dataset.a==='row')return rowClick(a,e);if(a&&ACT[a.dataset.a]){ACT[a.dataset.a](a.dataset);if(a.tagName==='BUTTON')a.blur?.()}});
-function rowClick(a,e){const p=+a.dataset.p,t=tab(p);if(S.mode!=='browse')return;S.active=p;const r=rowsOf(p)[+a.dataset.i];if(!r||!real(r))return;t.cur=r.i;if(e.metaKey&&!r.i.up)t.marked.has(r.i)?t.marked.delete(r.i):t.marked.add(r.i);render()}
+function rowClick(a,e){const p=+a.dataset.p,t=tab(p);if(S.mode!=='browse')return;S.active=p;const r=rowsOf(p)[+a.dataset.i];if(!r||!real(r))return;if(e.shiftKey)return extendTo(rowsOf(p).filter(real).findIndex(x=>x.i===r.i));t.range=null;t.cur=r.i;if(e.metaKey&&!r.i.up)t.marked.has(r.i)?t.marked.delete(r.i):t.marked.add(r.i);render()}
 document.addEventListener('contextmenu',e=>{const a=e.target.closest('[data-a=row]');if(!a||S.mode!=='browse'||S.ib)return;e.preventDefault();rowClick(a,{});if(A().cur&&!A().cur.up)menuFor(e.clientX,e.clientY)});
 document.addEventListener('dblclick',e=>{const a=e.target.closest('[data-a=row]');if(a&&S.mode==='browse'&&!S.ib)open()});
 document.addEventListener('wheel',e=>{if(S.mode==='rename'&&e.target.closest('#v-rename')){S.rn.top+=Math.sign(e.deltaY)*3;return rnLists()}if(S.mode==='compare'&&e.target.closest('#v-compare')){S.cp.cur=Math.max(0,Math.min(cpVis().length-1,S.cp.cur+Math.sign(e.deltaY)));return cpLists()}const l=e.target.closest('.list');if(!l||!/^list/.test(l.id))return;const t=tab(+l.id.slice(4)),n=Math.floor(l.clientHeight/20),m=rowsOf(+l.id.slice(4)).length-n;t.top=Math.max(0,Math.min(m,t.top+Math.sign(e.deltaY)*3));const r=rowsOf(+l.id.slice(4)).filter(real);const i=r.findIndex(x=>x.i===t.cur);if(i<t.top)t.cur=r[t.top]?.i;if(i>=t.top+n)t.cur=r[t.top+n-1]?.i;render()},{passive:true});
@@ -631,8 +632,8 @@ addEventListener('keydown',e=>{
     if(k==='Backspace'){stop();return begin('trash')}if(m&&!sh){stop();return m()}return}
   switch(k){
     case'Tab':stop();S.active=1-S.active;S.qs='';return render();
-    case'ArrowDown':stop();return move(1);case'ArrowUp':stop();return move(-1);
-    case'PageDown':stop();return move(20);case'PageUp':stop();return move(-20);case'Home':stop();return move(-1e4);case'End':stop();return move(1e4);
+    case'ArrowDown':stop();return move(1,sh);case'ArrowUp':stop();return move(-1,sh);
+    case'PageDown':stop();return move(20,sh);case'PageUp':stop();return move(-20,sh);case'Home':stop();return move(-1e4,sh);case'End':stop();return move(1e4,sh);
     case'Enter':stop();S.qs='';return open();
     case'Backspace':stop();if(S.qs){S.qs=S.qs.slice(0,-1);return S.qs?find():render()}return up();
     case' ':stop();S.qs='';return mark();

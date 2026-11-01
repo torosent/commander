@@ -27,7 +27,7 @@ Commander keeps two folders on screen, so you always see where files are coming 
 
 **Files and panels**
 - Two panels, each with tabs you can reorder or move across
-- Marking, marking by pattern, invert, and quick search by typing
+- Marking with Space, Shift ranges or ⌘+click, marking by pattern, invert, and quick search by typing
 - Sorting, hidden files, back and forward history, and go to path
 - Real file icons, a right-click menu, and Open With
 
@@ -77,6 +77,8 @@ Commander is still pre-release software, so keep backups of anything you can't l
 |---|---|
 | Switch panel | Tab |
 | Mark | Space |
+| Mark a range | Shift+arrow or Shift+click |
+| Mark one row with the mouse | ⌘+click |
 | Mark or unmark by pattern | + / - |
 | Command palette | ⌘K |
 | Command line | ⌘L |

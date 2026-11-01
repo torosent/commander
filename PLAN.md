@@ -71,6 +71,8 @@ Mac laptops have no Insert key, and F-keys are media keys by default, so every F
 |---|---|
 | Switch panel | Tab |
 | Mark and show folder size | Space |
+| Mark a range | Shift+arrow, Shift+Page Up or Down, Shift+Home or End, or Shift+click |
+| Mark or unmark one row with the mouse | ⌘+click |
 | Mark or unmark by pattern | + / - |
 | Invert marks | * |
 | Mark all | ⌘A |
@@ -413,6 +415,7 @@ Decided in M9:
 - A row press becomes a file drag only after moving 5pt, because a click always moves a little. Without that, a click could start a drag over its own panel and highlight the whole table. A file also can't drop back into the folder it's already in.
 - A trackpad scrolls freely and settles on a whole row when it stops, because stepping 20pt at a time juddered. A mouse wheel still moves in whole rows.
 - The viewer keeps one Quick Look view for every file, because a new one showed black until its first page was ready.
+- A Shift range runs from where it began to the cursor, and pulling back unmarks only what it marked. A ⌘+click acts on mouse-up, because ⌘ held during a drag forces a move.
 - The README's demo and screenshots come from the prototype, so no real files appear in public. They're labelled as the prototype.
 
 ## Open questions

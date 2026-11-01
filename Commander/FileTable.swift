@@ -92,7 +92,7 @@ struct FileTable: NSViewRepresentable {
                 workspace.panels[index].setCursor(row)
             }
             table.onKey = { [weak table] event in view.handle(event, page: table?.visibleRows ?? 1) }
-            table.onClick = { row, clicks in view.click(row: row, count: clicks) }
+            table.onClick = { row, clicks, modifiers in view.click(row: row, count: clicks, modifiers: modifiers) }
             table.onMarkAll = { view.workspace.panels[view.index].markAll() }
             table.onCopy = {
                 let panel = view.workspace.panels[view.index]
@@ -328,13 +328,20 @@ struct FileTable: NSViewRepresentable {
             return true
         }
         let shifted = event.modifierFlags.contains(.shift)
+        // With Shift, moving the cursor marks what it passes.
+        func go(to row: Int) {
+            guard shifted else { return panel.setCursor(row) }
+            let before = panel.markedCount
+            panel.extendMarks(to: row)
+            if panel.markedCount != before, !event.isARepeat { Announcement.say("\(panel.markedCount) marked") }
+        }
         switch event.keyCode {
-        case 125: panel.moveCursor(by: 1)
-        case 126: panel.moveCursor(by: -1)
-        case 121: panel.moveCursor(by: page)
-        case 116: panel.moveCursor(by: -page)
-        case 119: panel.setCursor(.max - 1)
-        case 115: panel.setCursor(0)
+        case 125: go(to: panel.cursorIndex + 1)
+        case 126: go(to: panel.cursorIndex - 1)
+        case 121: go(to: panel.cursorIndex + page)
+        case 116: go(to: panel.cursorIndex - page)
+        case 119: go(to: .max - 1)
+        case 115: go(to: 0)
         case 36, 76:
             // After No match the cursor is on an unrelated row, so Return must not open it.
             guard !panel.queryFailed else { break }
@@ -392,14 +399,19 @@ struct FileTable: NSViewRepresentable {
         return true
     }
 
-    private func click(row: Int, count: Int) {
+    private func click(row: Int, count: Int, modifiers: NSEvent.ModifierFlags) {
         guard workspace.pending == nil else { return }
         workspace.activate(index)
         workspace.returnFocus()
         guard row >= 0 else { return }
         let panel = workspace.panels[index]
+        if modifiers.contains(.shift) { return panel.extendMarks(to: row) }
         panel.setCursor(row)
-        if count == 2 { panel.openCursor() }
+        if modifiers.contains(.command) {
+            panel.toggleMark(advancing: false)
+        } else if count == 2 {
+            panel.openCursor()
+        }
     }
 }
 
@@ -568,7 +580,7 @@ final class KeyTable: NSTableView {
     private static let dragDistance: CGFloat = 5
 
     var onKey: (NSEvent) -> Bool = { _ in false }
-    var onClick: (Int, Int) -> Void = { _, _ in }
+    var onClick: (Int, Int, NSEvent.ModifierFlags) -> Void = { _, _, _ in }
     var onMarkAll: () -> Void = {}
     var quickLookURL: () -> URL? = { nil }
     var onCopy: () -> Void = {}
@@ -625,8 +637,15 @@ final class KeyTable: NSTableView {
 
     override func mouseDown(with event: NSEvent) {
         let row = row(at: convert(event.locationInWindow, from: nil))
-        dragStart = (row, event)
-        onClick(row, event.clickCount)
+        let modifiers = event.modifierFlags.intersection([.shift, .command])
+        dragStart = modifiers.contains(.shift) ? nil : (row, event)
+        // Holding ⌘ can also force a drag to move, so that click waits to see that no drag began.
+        if !modifiers.contains(.command) { onClick(row, event.clickCount, modifiers) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if let start = dragStart, start.event.modifierFlags.contains(.command) { onClick(start.row, 1, [.command]) }
+        dragStart = nil
     }
 
     override func mouseDragged(with event: NSEvent) {

@@ -783,6 +783,8 @@ public final class Panel {
     public private(set) var marksVersion = 0
     public private(set) var markedCount = 0
     public private(set) var markedSize: Int64 = 0
+    /// A Shift range under way: the row it began on, and what it marked itself.
+    @ObservationIgnored private var range: (anchor: Int, added: Set<String>)?
     public private(set) var query = ""
     public private(set) var queryFailed = false
     /// True while folders are still being measured, so totals may grow.
@@ -1000,6 +1002,7 @@ public final class Panel {
 
     /// Rebuilds rows from the listing. The cursor stays on its file, or at the same position if that file went.
     func rebuildRows(cursor: URL? = nil) {
+        range = nil
         let keep = cursor ?? cursorEntry?.url
         let previous = cursorIndex
         rows = tab.rows(showHidden: workspace?.showHidden ?? false)
@@ -1168,6 +1171,7 @@ public final class Panel {
     }
 
     private func place(_ index: Int) {
+        range = nil
         guard !rows.isEmpty else { return }
         cursorIndex = min(max(index, 0), rows.count - 1)
     }
@@ -1417,22 +1421,56 @@ public final class Panel {
     }
 
     /// Marks the cursor's row and moves down. A folder also has its size measured.
-    public func toggleMark() {
+    public func toggleMark(advancing: Bool = true) {
         guard let entry = cursorEntry else { return }
         if !entry.isParent {
-            let wasMarked = tabs[tabIndex].marked.remove(entry.url.path) != nil
-            if !wasMarked { tabs[tabIndex].marked.insert(entry.url.path) }
-            // One row changed, so a huge folder needn't be recounted while Space is held down.
-            if markPreview == nil {
-                markedCount += wasMarked ? -1 : 1
-                markedSize += (wasMarked ? -1 : 1) * (entry.size ?? 0)
-                marksVersion += 1
-            } else {
-                refreshMarks()
-            }
-            if !wasMarked { measure([entry]) }
+            let marks = !tab.marked.contains(entry.url.path)
+            setMark(entry, to: marks)
+            marksChanged()
+            if marks { measure([entry]) }
         }
-        moveCursor(by: 1)
+        if advancing { moveCursor(by: 1) }
+    }
+
+    /// Shift+arrow and Shift+click: marks every row from where the range began to `index`, which takes
+    /// the cursor. Pulling back unmarks only what the range marked, so earlier marks survive it.
+    public func extendMarks(to index: Int) {
+        endSearch()
+        guard !rows.isEmpty else { return }
+        let target = min(max(index, 0), rows.count - 1)
+        let before = range.map { min($0.anchor, cursorIndex)...max($0.anchor, cursorIndex) }
+        var current = range ?? (anchor: cursorIndex, added: [])
+        let after = min(current.anchor, target)...max(current.anchor, target)
+        // Only the rows that changed sides, so a held key stays quick in a huge folder.
+        if let before {
+            for row in before where !after.contains(row) && current.added.remove(rows[row].url.path) != nil {
+                setMark(rows[row], to: false)
+            }
+        }
+        var entered: [FileEntry] = []
+        for row in after where before?.contains(row) != true {
+            let entry = rows[row]
+            guard !entry.isParent, !tab.marked.contains(entry.url.path) else { continue }
+            setMark(entry, to: true)
+            current.added.insert(entry.url.path)
+            entered.append(entry)
+        }
+        marksChanged()
+        measure(entered)
+        place(target)
+        range = current
+    }
+
+    /// One row at a time, so a huge folder needn't be recounted while a key is held down.
+    private func setMark(_ entry: FileEntry, to isMarked: Bool) {
+        if isMarked { tabs[tabIndex].marked.insert(entry.url.path) } else { tabs[tabIndex].marked.remove(entry.url.path) }
+        guard markPreview == nil else { return }
+        markedCount += isMarked ? 1 : -1
+        markedSize += (isMarked ? 1 : -1) * (entry.size ?? 0)
+    }
+
+    private func marksChanged() {
+        if markPreview == nil { marksVersion += 1 } else { refreshMarks() }
     }
 
     /// Space while searching continues the query if a name really has a space there. Otherwise it marks.
@@ -1496,6 +1534,7 @@ public final class Panel {
 
     /// Dots update at once. A preview's total is counted off the main actor, since it runs on every keystroke.
     private func refreshMarks() {
+        range = nil
         marksVersion += 1
         markCounting?.cancel()
         guard let preview = markPreview else {

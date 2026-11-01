@@ -29,6 +29,125 @@ import Testing
         return made.panels[0]
     }
 
+    /// Files `a` to `f`, each one byte per letter position, under the ".." row.
+    private func rangeFolder(_ temp: TempFolder, in workspace: inout Workspace?) async throws -> Panel {
+        for (size, name) in ["a", "b", "c", "d", "e", "f"].enumerated() { try temp.file(name, bytes: size + 1) }
+        return await panel(temp, in: &workspace)
+    }
+
+    private func marked(_ panel: Panel) -> [String] {
+        panel.selectionEntries.map(\.name).filter { _ in panel.markedCount > 0 }
+    }
+
+    @Test func aRangeMarksFromTheCursorToTheTarget() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(2)
+        panel.extendMarks(to: 4)
+        #expect(marked(panel) == ["b", "c", "d"])
+        #expect(panel.cursorEntry?.name == "d")
+        #expect(panel.markedCount == 3)
+        #expect(panel.markedSize == 2 + 3 + 4)
+    }
+
+    @Test func pullingARangeBackUnmarksAndCrossesItsStart() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(3)
+        panel.extendMarks(to: 5)
+        panel.extendMarks(to: 4)
+        #expect(marked(panel) == ["c", "d"])
+        panel.extendMarks(to: 2)
+        #expect(marked(panel) == ["b", "c"])
+        #expect(panel.markedSize == 2 + 3)
+    }
+
+    @Test func aRangeLeavesEarlierMarksAlone() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(4)
+        panel.toggleMark()
+        panel.setCursor(3)
+        panel.extendMarks(to: 5)
+        #expect(marked(panel) == ["c", "d", "e"])
+        panel.extendMarks(to: 3)
+        #expect(marked(panel) == ["c", "d"])
+        #expect(panel.markedCount == 2)
+    }
+
+    @Test func aPlainMoveEndsTheRangeAndKeepsItsMarks() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(1)
+        panel.extendMarks(to: 2)
+        panel.setCursor(5)
+        panel.extendMarks(to: 6)
+        #expect(marked(panel) == ["a", "b", "e", "f"])
+        panel.extendMarks(to: 5)
+        #expect(marked(panel) == ["a", "b", "e"])
+    }
+
+    @Test func aRangeLeavesTheParentRowOut() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(2)
+        panel.extendMarks(to: 0)
+        #expect(marked(panel) == ["a", "b"])
+        #expect(panel.cursorEntry?.isParent == true)
+        #expect(panel.markedCount == 2)
+    }
+
+    @Test func aRangeStopsAtTheEnds() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(5)
+        panel.extendMarks(to: .max - 1)
+        #expect(marked(panel) == ["e", "f"])
+        #expect(panel.cursorEntry?.name == "f")
+    }
+
+    @Test func bulkMarkingEndsARange() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(1)
+        panel.extendMarks(to: 3)
+        panel.clearMarks()
+        panel.extendMarks(to: 4)
+        #expect(marked(panel) == ["c", "d"])
+    }
+
+    @Test func aRefreshDuringARangeKeepsItsMarks() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(1)
+        panel.extendMarks(to: 2)
+        try temp.file("0-first")
+        panel.refresh()
+        await panel.loaded()
+        panel.extendMarks(to: panel.cursorIndex + 1)
+        #expect(marked(panel) == ["a", "b", "c"])
+    }
+
+    @Test func aMarkCanBeToggledWithoutMoving() async throws {
+        let temp = try TempFolder()
+        var workspace: Workspace?
+        let panel = try await rangeFolder(temp, in: &workspace)
+        panel.setCursor(2)
+        panel.toggleMark(advancing: false)
+        #expect(panel.cursorEntry?.name == "b")
+        #expect(panel.markedCount == 1)
+        panel.toggleMark(advancing: false)
+        #expect(panel.markedCount == 0)
+    }
+
     @Test func spaceMarksAndMovesDown() async throws {
         let temp = try TempFolder()
         try temp.file("a", bytes: 10)
