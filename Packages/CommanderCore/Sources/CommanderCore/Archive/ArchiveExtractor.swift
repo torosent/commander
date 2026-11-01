@@ -14,11 +14,14 @@ public struct ArchiveExtractor: Sendable {
         public var inner: [String]
         public var target: URL
         public var conflict: ConflictChoice
+        /// What the preview showed at `target`, if it showed anything.
+        public var existing: PlannedItem.Existing?
 
-        public init(inner: [String] = [], target: URL, conflict: ConflictChoice) {
+        public init(inner: [String] = [], target: URL, conflict: ConflictChoice, existing: PlannedItem.Existing? = nil) {
             self.inner = inner
             self.target = target
             self.conflict = conflict
+            self.existing = existing
         }
     }
 
@@ -57,6 +60,9 @@ public struct ArchiveExtractor: Sendable {
         }
         var result = Result()
         result.report = try unpack(archive, into: &selections)
+        if !Self.spreadQuarantine(from: archive, to: zip(selections, items).map { ($0.payload, $1.target) }) {
+            result.report.failures.append((archive.lastPathComponent, "The download warning couldn't be kept on what came out, so take care opening it."))
+        }
         // A private control, because these are renames and progress already went by the archive read.
         let engine = CopyEngine(control: JobControl())
         for (item, selection) in zip(items, selections) {
@@ -64,13 +70,44 @@ public struct ArchiveExtractor: Sendable {
                 guard FileNames.exists(selection.payload) else {
                     throw .unsupported(result.report.failures.first?.reason ?? "That item isn't in the archive.")
                 }
-                result.report.absorb(try engine.move(selection.payload, to: item.target, conflict: item.conflict))
+                result.report.absorb(try engine.move(selection.payload, to: item.target, conflict: item.conflict, expected: item.existing))
                 result.problems.append(nil)
             } catch {
                 result.problems.append(error)
             }
         }
         return result
+    }
+
+    /// A downloaded archive's warning passes to everything inside, or macOS won't check an app before
+    /// it first opens. Folders get it too, because for an `.app` that's where macOS looks, and so do
+    /// folders already at the target, which stay when a merge replaces what's in them.
+    /// Returns false if a mark couldn't be written.
+    private static func spreadQuarantine(from archive: URL, to places: [(payload: URL, target: URL)]) -> Bool {
+        let name = "com.apple.quarantine"
+        let size = getxattr(archive.path, name, nil, 0, 0, 0)
+        guard size > 0 else { return true }
+        var mark = [UInt8](repeating: 0, count: size)
+        guard getxattr(archive.path, name, &mark, size, 0, 0) == size else { return true }
+        var isMarked = true
+        func apply(to url: URL) {
+            if setxattr(url.path, name, mark, size, 0, XATTR_NOFOLLOW) != 0 { isMarked = false }
+        }
+        func applyIfFolder(_ url: URL) {
+            var info = stat()
+            if lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR { apply(to: url) }
+        }
+        for (payload, target) in places where FileNames.exists(payload) {
+            apply(to: payload)
+            applyIfFolder(target)
+            // The walk stays out of symlinked folders, and each link takes the mark itself.
+            guard let walk = FileManager.default.enumerator(atPath: payload.path) else { continue }
+            for case let path as String in walk {
+                apply(to: payload.appending(path: path))
+                applyIfFolder(target.appending(path: path))
+            }
+        }
+        return isMarked
     }
 
     /// A single compressed file has one entry, named for the archive, and comes out as that file.

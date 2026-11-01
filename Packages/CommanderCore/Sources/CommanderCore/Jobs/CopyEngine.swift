@@ -92,17 +92,19 @@ public struct CopyEngine: Sendable {
     // MARK: Copy
 
     /// A file already at `target` is replaced only for `.replace`. With any other choice it's an error,
-    /// so a file that appeared after the preview can't be overwritten unseen.
-    public func copy(_ source: URL, to target: URL, conflict: ConflictChoice) throws(OperationError) -> EngineReport {
+    /// so a file that appeared after the preview can't be overwritten unseen. `expected` is what the
+    /// preview showed there. It's checked now, and again before the swap, because a copy can take minutes.
+    public func copy(_ source: URL, to target: URL, conflict: ConflictChoice, expected: PlannedItem.Existing? = nil) throws(OperationError) -> EngineReport {
         var info = try status(of: source)
         if try isSameFile(&info, target) { throw .sameFile }
+        if conflict == .replace { try expected?.confirm(at: target) }
         switch info.st_mode & S_IFMT {
         case S_IFDIR:
             return try copyFolder(source, to: target, info: info, conflict: conflict)
         case S_IFREG, S_IFLNK:
             let exists = FileNames.exists(target)
             if exists, conflict != .replace { throw .alreadyExists }
-            try copyLeaf(source, to: target, replacing: exists, size: Int64(info.st_size))
+            try copyLeaf(source, to: target, replacing: exists, info: info, expected: expected)
             return EngineReport()
         default:
             throw .unsupported("Special files can't be copied.")
@@ -121,12 +123,40 @@ public struct CopyEngine: Sendable {
         do {
             let report = try fill(building, from: source, conflict: conflict, merging: false)
             copyAttributes(from: source, to: building)
+            let locks = unlock(building)
             try rename(building, to: target, replacing: false)
+            relock(target, locks)
             return report
         } catch {
-            try? FileManager.default.removeItem(at: building)
+            discard(building)
             throw error
         }
+    }
+
+    /// Removes a half-built folder, unlocking what came along on the way.
+    private func discard(_ folder: URL) {
+        unlock(folder)
+        // The walk stays out of symlinked folders, and it reaches a folder before what's inside.
+        if let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) {
+            for case let url as URL in walk { unlock(url) }
+        }
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    /// The Finder's Locked setting comes along with a copy, and blocks the rename into place and any
+    /// cleanup. This returns what it cleared, for `relock` to put back once the copy is at its name.
+    @discardableResult
+    private func unlock(_ url: URL) -> UInt32 {
+        var info = stat()
+        guard lstat(url.path, &info) == 0, info.st_flags & Self.lockFlags != 0 else { return 0 }
+        lchflags(url.path, info.st_flags & ~Self.lockFlags)
+        return info.st_flags & Self.lockFlags
+    }
+
+    private func relock(_ url: URL, _ locks: UInt32) {
+        var info = stat()
+        guard locks != 0, lstat(url.path, &info) == 0 else { return }
+        lchflags(url.path, info.st_flags | locks)
     }
 
     /// Copies a folder's contents, carrying on past files that fail so one bad file doesn't lose the rest.
@@ -154,14 +184,14 @@ public struct CopyEngine: Sendable {
                     switch conflict {
                     case .skip: continue
                     case .keepBoth:
-                        try copyLeaf(child, to: FileNames.free(target), replacing: false, size: Int64(info.st_size))
+                        try copyLeaf(child, to: FileNames.free(target), replacing: false, info: info)
                     case .replace:
                         guard existing.st_mode & S_IFMT != S_IFDIR else { throw OperationError.wrongType }
                         if isNewer(existing, than: info) {
                             report.keptNewer += 1
                             continue
                         }
-                        try copyLeaf(child, to: target, replacing: true, size: Int64(info.st_size))
+                        try copyLeaf(child, to: target, replacing: true, info: info)
                     }
                 } else {
                     report.absorb(try copy(child, to: target, conflict: conflict))
@@ -181,13 +211,21 @@ public struct CopyEngine: Sendable {
 
     /// Copies one file or symlink to a temporary name beside the target, then renames it into place.
     /// The rename is atomic, so at every moment the target is either the old file or the whole new one.
-    private func copyLeaf(_ source: URL, to target: URL, replacing: Bool, size: Int64) throws(OperationError) {
+    private func copyLeaf(_ source: URL, to target: URL, replacing: Bool, info: stat, expected: PlannedItem.Existing? = nil) throws(OperationError) {
+        // Only root can clear these, so a temporary copy carrying one could never be renamed or removed.
+        if info.st_flags & UInt32(SF_IMMUTABLE | SF_APPEND) != 0 { throw .unsupported("The system has locked it, so it can't be copied.") }
         let temporary = temporaryName(beside: target)
         do {
-            try cloneOrCopy(source, to: temporary, size: size)
-            if replacing { try flush(temporary) }
+            try cloneOrCopy(source, to: temporary, size: Int64(info.st_size))
+            let locks = unlock(temporary)
+            if replacing {
+                try flush(temporary)
+                try expected?.confirm(at: target)
+            }
             try rename(temporary, to: target, replacing: replacing)
+            relock(target, locks)
         } catch {
+            unlock(temporary)
             unlink(temporary.path)
             throw error
         }
@@ -264,10 +302,21 @@ public struct CopyEngine: Sendable {
     /// One disk sync per file makes a big folder ten times slower, so sources wait for a shared one.
     private static let settleBatch = 1024
 
-    public func move(_ source: URL, to target: URL, conflict: ConflictChoice) throws(OperationError) -> EngineReport {
+    /// The user's own Locked and append-only settings. The `SF_` versions belong to root.
+    private static let lockFlags = UInt32(UF_IMMUTABLE | UF_APPEND)
+
+    /// Whether macOS would refuse to remove this, because it or its folder is locked.
+    static func isLocked(_ url: URL) -> Bool {
+        var info = stat()
+        var folder = stat()
+        return lstat(url.path, &info) == 0 && info.st_flags & lockFlags != 0
+            || stat(url.deletingLastPathComponent().path, &folder) == 0 && folder.st_flags & lockFlags != 0
+    }
+
+    public func move(_ source: URL, to target: URL, conflict: ConflictChoice, expected: PlannedItem.Existing? = nil) throws(OperationError) -> EngineReport {
         var moved: [Moved] = []
         do throws(OperationError) {
-            var report = try transfer(source, to: target, conflict: conflict, moved: &moved)
+            var report = try transfer(source, to: target, conflict: conflict, expected: expected, moved: &moved)
             report.absorb(settle(&moved))
             return report
         } catch {
@@ -277,9 +326,12 @@ public struct CopyEngine: Sendable {
         }
     }
 
-    private func transfer(_ source: URL, to target: URL, conflict: ConflictChoice, moved: inout [Moved]) throws(OperationError) -> EngineReport {
+    private func transfer(_ source: URL, to target: URL, conflict: ConflictChoice, expected: PlannedItem.Existing? = nil, moved: inout [Moved]) throws(OperationError) -> EngineReport {
         var info = try status(of: source)
         if try isSameFile(&info, target) { throw .sameFile }
+        // A locked source can't be removed, so a copy of it would leave the file on both sides.
+        if Self.isLocked(source) { throw .unsupported("It or its folder is locked, so it can't be moved.") }
+        if conflict == .replace { try expected?.confirm(at: target) }
         let isFolder = info.st_mode & S_IFMT == S_IFDIR
         let exists = FileNames.exists(target)
         if exists, !isFolder, conflict != .replace { throw .alreadyExists }
@@ -295,7 +347,7 @@ public struct CopyEngine: Sendable {
         if isFolder {
             return try moveFolder(source, to: target, info: info, conflict: conflict, moved: &moved)
         }
-        try copyLeaf(source, to: target, replacing: exists, size: Int64(info.st_size))
+        try copyLeaf(source, to: target, replacing: exists, info: info, expected: expected)
         moved.append(.file(source, copiedTo: target))
         return EngineReport()
     }

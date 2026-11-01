@@ -58,6 +58,14 @@ private func tree(_ folder: URL) -> [String] {
     (FileManager.default.subpaths(atPath: folder.path) ?? []).sorted()
 }
 
+private let quarantine = "com.apple.quarantine"
+
+private func quarantined(_ url: URL) -> String? {
+    var bytes = [UInt8](repeating: 0, count: 64)
+    let size = getxattr(url.path, quarantine, &bytes, 64, 0, XATTR_NOFOLLOW)
+    return size < 0 ? nil : String(decoding: bytes.prefix(size), as: UTF8.self)
+}
+
 private func text(_ url: URL) throws -> String {
     try String(contentsOf: url, encoding: .utf8)
 }
@@ -452,6 +460,79 @@ private let rarBase64 = "UmFyIRoHAM+QcwAADQAAAAAAAADhBHQAgCoACgAAAAoAAAADXVXQFwA
         #expect(try text(target) == "old")
         _ = try ArchiveExtractor().extract(archive, inner: ["one"], to: target, conflict: .replace)
         #expect(try text(target) == "new")
+    }
+
+    @Test func aDownloadedArchivePassesOnItsWarning() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.zip")
+        try craft(archive, zip: true, [.folder("Demo.app/"), .file("Demo.app/Contents/run", "x"), .link("link", "Demo.app")])
+        let mark = "0081;00000000;Safari;"
+        #expect(setxattr(archive.path, quarantine, mark, mark.utf8.count, 0, 0) == 0)
+        let out = temp.url.appending(path: "out")
+        _ = try ArchiveExtractor().extract(archive, to: out, conflict: .skip)
+        for path in ["", "Demo.app", "Demo.app/Contents", "Demo.app/Contents/run", "link"] {
+            #expect(quarantined(out.appending(path: path)) == mark, "\(path)")
+        }
+    }
+
+    @Test func replacingAnAppKeepsTheWarningOnItsFolders() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.tar")
+        try craft(archive, [.file("Pack/Demo.app/Contents/run", "new")])
+        #expect(setxattr(archive.path, quarantine, "0081;", 5, 0, 0) == 0)
+        let out = try temp.folder("out")
+        let old = try temp.file("out/Pack/Demo.app/Contents/run")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: old.path)
+        let unrelated = try temp.folder("out/Pack/Other.app")
+        _ = try ArchiveExtractor().extract(archive, to: out, conflict: .replace)
+        #expect(try text(old) == "new")
+        #expect(quarantined(out.appending(path: "Pack/Demo.app")) == "0081;")
+        #expect(quarantined(old) == "0081;")
+        #expect(quarantined(unrelated) == nil)
+    }
+
+    @Test func aDriveWithoutAttributesStillGetsTheWarning() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.tar")
+        try craft(archive, [.file("x/one", "text")])
+        #expect(setxattr(archive.path, quarantine, "0081;", 5, 0, 0) == 0)
+        let image = try DiskImage(format: "ExFAT")
+        let out = image.mount.appending(path: "out")
+        let report = try ArchiveExtractor().extract(archive, to: out, conflict: .skip)
+        #expect(report.failures.isEmpty)
+        #expect(quarantined(out.appending(path: "x/one")) == "0081;")
+    }
+
+    @Test func oneFileTakenOutOfADownloadKeepsTheWarning() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.tar")
+        try craft(archive, [.file("one", "x")])
+        #expect(setxattr(archive.path, quarantine, "0081;", 5, 0, 0) == 0)
+        let out = temp.url.appending(path: "one")
+        _ = try ArchiveExtractor().extract(archive, inner: ["one"], to: out, conflict: .skip)
+        #expect(quarantined(out) == "0081;")
+    }
+
+    @Test func anArchiveWithNoWarningAddsNone() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.tar")
+        try craft(archive, [.file("one", "x")])
+        let out = temp.url.appending(path: "out")
+        _ = try ArchiveExtractor().extract(archive, to: out, conflict: .skip)
+        #expect(quarantined(out.appending(path: "one")) == nil)
+    }
+
+    @Test func aFileChangedSinceThePreviewIsNotReplaced() throws {
+        let temp = try TempFolder()
+        let archive = temp.url.appending(path: "a.tar")
+        try craft(archive, [.file("one", "new")])
+        let target = temp.url.appending(path: "one")
+        try Data("mine".utf8).write(to: target)
+        let shown = PlannedItem.Existing(isDirectory: false, age: .older, modified: Date(timeIntervalSince1970: 1_000), size: 3)
+        let item = ArchiveExtractor.Item(inner: ["one"], target: target, conflict: .replace, existing: shown)
+        let result = try ArchiveExtractor().extract(archive, items: [item])
+        #expect(result.problems[0] == .unsupported("It changed after the preview, so it was left alone."))
+        #expect(try text(target) == "mine")
     }
 
     @Test func mergingIntoAFolderKeepsNewerFiles() throws {

@@ -180,11 +180,11 @@ public final class JobQueue {
                         report.skipped += 1
                         continue
                     }
-                    // Only a conflict the preview showed may be replaced. Anything newer than the plan is kept.
+                    // Only a conflict the preview showed may be replaced, and only as it showed it.
                     let conflict = item.existing == nil ? ConflictChoice.skip : choice
                     let result = preview.kind == .copy
-                        ? try engine.copy(item.source.url, to: target, conflict: conflict)
-                        : try engine.move(item.source.url, to: target, conflict: conflict)
+                        ? try engine.copy(item.source.url, to: target, conflict: conflict, expected: item.existing)
+                        : try engine.move(item.source.url, to: target, conflict: conflict, expected: item.existing)
                     report.keptNewer += result.keptNewer
                     report.failures += result.failures
                 }
@@ -204,28 +204,13 @@ public final class JobQueue {
 
     /// One row of a sync. No target means it goes to Trash.
     private nonisolated static func sync(_ item: PlannedItem, _ engine: CopyEngine) throws -> EngineReport {
-        try unchanged(item.source.url, item.source.modified, item.source.size, isFolder: item.source.isDirectory, goesToTrash: item.target == nil)
+        try FileNames.unchanged(item.source.url, item.source.modified, item.source.size, isFolder: item.source.isDirectory, goesToTrash: item.target == nil)
         guard let target = item.target else {
             try FileManager.default.trashItem(at: item.source.url, resultingItemURL: nil)
             return EngineReport()
         }
         // The preview said what it would replace, so anything else there isn't overwritten.
-        if let existing = item.existing { try unchanged(target, existing.modified, existing.size, isFolder: existing.isDirectory) }
-        return try engine.copy(item.source.url, to: target, conflict: item.existing == nil ? .skip : .replace)
-    }
-
-    /// Time has passed since the comparison the user looked at, and it may no longer be true.
-    private nonisolated static func unchanged(_ url: URL, _ modified: Date?, _ size: Int64?, isFolder: Bool, goesToTrash: Bool = false) throws {
-        var info = stat()
-        guard lstat(url.path, &info) == 0 else { throw OperationError.system(errno) }
-        let time = TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
-        let isSameDate = abs(time - (modified?.timeIntervalSince1970 ?? 0)) < 0.001
-        // A folder copied whole just brings its newest contents, but one going to Trash takes them away.
-        // shortcut: a folder's date only shows changes directly inside it, walk it if that proves too loose.
-        let isSame = isFolder ? !goesToTrash || isSameDate : size == Int64(info.st_size) && isSameDate
-        guard isFolder == (info.st_mode & S_IFMT == S_IFDIR), isSame else {
-            throw OperationError.unsupported("It changed after the comparison, so it was left alone.")
-        }
+        return try engine.copy(item.source.url, to: target, conflict: item.existing == nil ? .skip : .replace, expected: item.existing)
     }
 
     /// Goes through each archive once, however many items are coming out of it.
@@ -240,7 +225,7 @@ public final class JobQueue {
             // Only a conflict the preview showed may be replaced.
             let conflict = planned.existing == nil ? ConflictChoice.skip : choice
             groups[place.archive, default: []].append(
-                (planned.source.fileName, ArchiveExtractor.Item(inner: place.inner, target: target, conflict: conflict))
+                (planned.source.fileName, ArchiveExtractor.Item(inner: place.inner, target: target, conflict: conflict, existing: planned.existing))
             )
         }
         let sizes = groups.keys.map { Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }

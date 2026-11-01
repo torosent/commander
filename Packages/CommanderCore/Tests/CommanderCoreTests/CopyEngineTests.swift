@@ -78,6 +78,22 @@ private func setDate(_ url: URL, _ date: Date) throws {
     try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
 }
 
+private let lockedFromMoving = OperationError.unsupported("It or its folder is locked, so it can't be moved.")
+
+private func lock(_ urls: URL...) {
+    for url in urls { chflags(url.path, UInt32(UF_IMMUTABLE)) }
+}
+
+/// Tests must call this, or a temporary folder can't remove itself.
+private func unlock(_ urls: URL...) {
+    for url in urls { chflags(url.path, 0) }
+}
+
+private func isLocked(_ url: URL) -> Bool {
+    var info = stat()
+    return lstat(url.path, &info) == 0 && info.st_flags & UInt32(UF_IMMUTABLE) != 0
+}
+
 @Suite struct CopySafetyTests {
     let engine = CopyEngine()
 
@@ -168,6 +184,138 @@ private func setDate(_ url: URL, _ date: Date) throws {
         #expect(!seen.value)
         #expect(try Data(contentsOf: target).count == 3_000_000)
         #expect(files(in: image.mount).filter { $0.hasPrefix(".commander") }.isEmpty)
+    }
+
+    @Test func aLockedFileCopiesAndStaysLocked() throws {
+        let temp = try TempFolder()
+        let source = try temp.file("locked", bytes: 5)
+        let image = try DiskImage(format: "APFS")
+        for target in [temp.url.appending(path: "copy"), image.mount.appending(path: "copy")] {
+            lock(source)
+            defer { unlock(source, target) }
+            _ = try CopyEngine().copy(source, to: target, conflict: .skip)
+            #expect(isLocked(target))
+            #expect(try Data(contentsOf: target).count == 5)
+        }
+        #expect(files(in: temp.url).filter { $0.hasPrefix(".commander") }.isEmpty)
+        #expect(files(in: image.mount).filter { $0.hasPrefix(".commander") }.isEmpty)
+    }
+
+    @Test func aLockedFolderCopiesAndStaysLocked() throws {
+        let temp = try TempFolder()
+        let folder = try temp.folder("locked")
+        let inner = try temp.file("locked/one")
+        let target = temp.url.appending(path: "copy")
+        lock(inner, folder)
+        defer { unlock(folder, inner, target, target.appending(path: "one")) }
+        _ = try CopyEngine().copy(folder, to: target, conflict: .skip)
+        #expect(isLocked(target))
+        #expect(isLocked(target.appending(path: "one")))
+        #expect(files(in: temp.url).filter { $0.hasPrefix(".commander") }.isEmpty)
+    }
+
+    @Test func stoppingAFolderOfLockedFilesLeavesNoTemp() throws {
+        let temp = try TempFolder()
+        let folder = try temp.folder("locked")
+        let image = try DiskImage(format: "APFS")
+        let inner = try ["1", "2", "3"].map { try temp.file("locked/\($0)", bytes: 3_000_000) }
+        lock(inner[0], inner[1], inner[2])
+        defer { unlock(inner[0], inner[1], inner[2]) }
+        let control = JobControl()
+        var engine = CopyEngine(control: control)
+        // Past the first file, which is then whole, locked and in the hidden folder.
+        engine.onProgress = { if control.snapshot.bytes > 4_000_000 { control.cancel() } }
+        #expect(throws: OperationError.cancelled) {
+            _ = try engine.copy(folder, to: image.mount.appending(path: "copy"), conflict: .skip)
+        }
+        #expect(files(in: image.mount).filter { $0 == "copy" || $0.hasPrefix(".commander") }.isEmpty)
+    }
+
+    @Test func aLockedSourceIsNotMoved() throws {
+        let temp = try TempFolder()
+        let source = try temp.file("locked")
+        let image = try DiskImage(format: "APFS")
+        lock(source)
+        defer { unlock(source) }
+        for target in [temp.url.appending(path: "moved"), image.mount.appending(path: "moved")] {
+            #expect(throws: lockedFromMoving) {
+                _ = try CopyEngine().move(source, to: target, conflict: .skip)
+            }
+            #expect(!FileManager.default.fileExists(atPath: target.path))
+        }
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test func aFileInALockedFolderIsNotMovedToAnotherDrive() throws {
+        let temp = try TempFolder()
+        let folder = try temp.folder("locked")
+        let source = try temp.file("locked/one")
+        let image = try DiskImage(format: "APFS")
+        lock(folder)
+        defer { unlock(folder) }
+        let target = image.mount.appending(path: "one")
+        #expect(throws: lockedFromMoving) { _ = try CopyEngine().move(source, to: target, conflict: .skip) }
+        #expect(!FileManager.default.fileExists(atPath: target.path))
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test func aFolderHoldingALockedFileMovesTheRest() throws {
+        let temp = try TempFolder()
+        let folder = try temp.folder("folder")
+        let locked = try temp.file("folder/locked")
+        let plain = try temp.file("folder/plain")
+        let image = try DiskImage(format: "APFS")
+        lock(locked)
+        defer { unlock(locked) }
+        let target = image.mount.appending(path: "folder")
+        let report = try CopyEngine().move(folder, to: target, conflict: .skip)
+        #expect(report.failures.map(\.name) == ["locked"])
+        #expect(FileManager.default.fileExists(atPath: locked.path))
+        #expect(!FileManager.default.fileExists(atPath: target.appending(path: "locked").path))
+        #expect(!FileManager.default.fileExists(atPath: plain.path))
+        #expect(FileManager.default.fileExists(atPath: target.appending(path: "plain").path))
+    }
+
+    @Test(arguments: [false, true])
+    func aTargetSavedDuringTheCopyIsKept(moving: Bool) throws {
+        let temp = try TempFolder()
+        let source = try temp.file("new", bytes: 3_000_000)
+        let image = try DiskImage(format: "APFS")
+        let target = image.mount.appending(path: "file")
+        try write("original", to: target)
+        var info = stat()
+        lstat(target.path, &info)
+        let time = TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+        let shown = PlannedItem.Existing(isDirectory: false, age: .older, modified: Date(timeIntervalSince1970: time), size: Int64(info.st_size))
+        var engine = CopyEngine()
+        let saved = Locked(false)
+        engine.onProgress = {
+            if !saved.value {
+                saved.set(true)
+                try? write("saved by an editor", to: target)
+            }
+        }
+        #expect(throws: OperationError.unsupported("It changed after the preview, so it was left alone.")) {
+            _ = moving
+                ? try engine.move(source, to: target, conflict: .replace, expected: shown)
+                : try engine.copy(source, to: target, conflict: .replace, expected: shown)
+        }
+        #expect(try read(target) == "saved by an editor")
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(files(in: image.mount).filter { $0.hasPrefix(".commander") }.isEmpty)
+    }
+
+    @Test func aLockedTargetIsNotReplaced() throws {
+        let temp = try TempFolder()
+        let source = try temp.file("source", bytes: 5)
+        let target = try temp.file("target", bytes: 3)
+        lock(source, target)
+        defer { unlock(source, target) }
+        #expect(throws: OperationError.system(EPERM)) {
+            _ = try CopyEngine().copy(source, to: target, conflict: .replace)
+        }
+        #expect(try Data(contentsOf: target).count == 3)
+        #expect(files(in: temp.url).filter { $0.hasPrefix(".commander") }.isEmpty)
     }
 
     @Test func stoppingMidFileKeepsTheOldFileAndLeavesNoTemp() throws {

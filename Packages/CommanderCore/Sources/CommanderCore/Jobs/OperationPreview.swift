@@ -17,6 +17,7 @@ public enum OperationRefusal: Error, Equatable, Sendable {
     case fileAndFolder(String)
     case destinationMissing
     case readOnlyArchive
+    case locked(String)
 
     public var message: String {
         switch self {
@@ -27,6 +28,7 @@ public enum OperationRefusal: Error, Equatable, Sendable {
         case .fileAndFolder(let name): "\(name) is a file on one side and a folder on the other, so one can't replace the other."
         case .destinationMissing: "The destination folder doesn't exist."
         case .readOnlyArchive: "Archives are read-only. Copy or extract the files instead."
+        case .locked(let name): "\(name) or its folder is locked, so it can't be moved."
         }
     }
 }
@@ -45,6 +47,12 @@ public struct PlannedItem: Identifiable, Sendable {
         public var modified: Date?
         public var size: Int64?
         public var isNewer: Bool { age == .newer }
+
+        /// Stops a replace if `url` isn't what the preview showed. If it's gone there's nothing to lose.
+        func confirm(at url: URL) throws(OperationError) {
+            guard FileNames.exists(url) else { return }
+            try FileNames.unchanged(url, modified, size, isFolder: isDirectory)
+        }
     }
 
     public let source: FileEntry
@@ -122,6 +130,7 @@ public struct OperationPreview: Sendable {
                 alreadyThere += 1
                 continue
             }
+            if kind == .move, CopyEngine.isLocked(source.url) { throw .locked(source.fileName) }
             if source.isDirectory, !source.isSymlink, let real = FileNames.realPath(source.url),
                destination == real || destination.hasPrefix(real + "/") {
                 throw .folderIntoItself
@@ -165,11 +174,13 @@ public struct OperationPreview: Sendable {
     private static func existing(at target: URL, against source: FileEntry) -> PlannedItem.Existing? {
         var info = stat()
         guard lstat(target.path, &info) == 0 else { return nil }
-        let modified = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec))
+        let modified = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
         let gap = modified.timeIntervalSince(source.modified ?? .distantPast)
         return PlannedItem.Existing(
             isDirectory: info.st_mode & S_IFMT == S_IFDIR,
-            age: gap >= 1 ? .newer : gap <= -1 ? .older : .same
+            age: gap >= 1 ? .newer : gap <= -1 ? .older : .same,
+            modified: modified,
+            size: Int64(info.st_size)
         )
     }
 }
@@ -214,6 +225,20 @@ public enum FileNames {
     static func freeFolder(in folder: URL) -> URL {
         let first = folder.appending(path: "untitled folder", directoryHint: .isDirectory)
         return exists(first) ? free(first) : first
+    }
+
+    /// Time has passed since the preview the user looked at, and it may no longer be true.
+    static func unchanged(_ url: URL, _ modified: Date?, _ size: Int64?, isFolder: Bool, goesToTrash: Bool = false) throws(OperationError) {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { throw .system(errno) }
+        let time = TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+        let isSameDate = abs(time - (modified?.timeIntervalSince1970 ?? 0)) < 0.001
+        // A folder copied whole just brings its newest contents, but one going to Trash takes them away.
+        // shortcut: a folder's date only shows changes directly inside it, walk it if that proves too loose.
+        let isSame = isFolder ? !goesToTrash || isSameDate : size == Int64(info.st_size) && isSameDate
+        guard isFolder == (info.st_mode & S_IFMT == S_IFDIR), isSame else {
+            throw .unsupported("It changed after the preview, so it was left alone.")
+        }
     }
 
     /// Renames in place. Changing only a name's case is fine, but it never replaces another file.

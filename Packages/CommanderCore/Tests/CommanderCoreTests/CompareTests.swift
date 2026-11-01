@@ -635,7 +635,7 @@ private func row(_ rows: [CompareRow], _ name: String) throws -> CompareRow {
         app.runSync()
         await app.jobs.finished()
         #expect(try text(b.appending(path: "f")) == "edited since")
-        #expect(app.report?.failures.first?.reason == "It changed after the comparison, so it was left alone.")
+        #expect(app.report?.failures.first?.reason == "It changed after the preview, so it was left alone.")
     }
 
     /// Chooses Trash for `name`, ready to run.
@@ -658,7 +658,7 @@ private func row(_ rows: [CompareRow], _ name: String) throws -> CompareRow {
         app.runSync()
         await app.jobs.finished()
         #expect(FileManager.default.fileExists(atPath: folder.path))
-        #expect(app.report?.failures.first?.reason == "It changed after the comparison, so it was left alone.")
+        #expect(app.report?.failures.first?.reason == "It changed after the preview, so it was left alone.")
     }
 
     @Test func aFileSwappedForAFolderIsNotTrashed() async throws {
@@ -672,7 +672,7 @@ private func row(_ rows: [CompareRow], _ name: String) throws -> CompareRow {
         app.runSync()
         await app.jobs.finished()
         #expect(FileManager.default.fileExists(atPath: file.path))
-        #expect(app.report?.failures.first?.reason == "It changed after the comparison, so it was left alone.")
+        #expect(app.report?.failures.first?.reason == "It changed after the preview, so it was left alone.")
     }
 
     @Test func anUntouchedFolderGoesToTrash() async throws {

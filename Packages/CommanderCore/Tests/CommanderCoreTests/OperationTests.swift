@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CommanderCore
@@ -104,6 +105,63 @@ import Testing
         await app.jobs.finished()
         #expect(try Data(contentsOf: temp.url.appending(path: "b/shared")).count == 7)
         #expect(app.message == "Nothing to do: every item was skipped.")
+    }
+
+    /// A conflict the preview has shown, ready to replace.
+    private func plannedReplace(_ kind: OperationKind, _ temp: TempFolder) async throws -> Workspace {
+        let (app, left, _) = try await setup(temp)
+        try temp.file("a/shared", bytes: 3)
+        let target = try temp.file("b/shared", bytes: 5)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000.5)], ofItemAtPath: target.path)
+        await reload(left)
+        left.setCursor(1)
+        app.begin(kind)
+        await app.planned()
+        #expect(app.pending?.choice == .replace)
+        return app
+    }
+
+    @Test(arguments: [OperationKind.copy, .move])
+    func aFileSavedAfterThePreviewIsKept(kind: OperationKind) async throws {
+        let temp = try TempFolder()
+        let app = try await plannedReplace(kind, temp)
+        try temp.file("b/shared", bytes: 9)
+        app.runOperation()
+        await app.jobs.finished()
+        #expect(try Data(contentsOf: temp.url.appending(path: "b/shared")).count == 9)
+        #expect(FileManager.default.fileExists(atPath: temp.url.appending(path: "a/shared").path))
+        #expect(app.report?.failures.first?.reason == "It changed after the preview, so it was left alone.")
+    }
+
+    @Test func aFileLeftAloneSinceThePreviewIsReplaced() async throws {
+        let temp = try TempFolder()
+        let app = try await plannedReplace(.copy, temp)
+        app.runOperation()
+        await app.jobs.finished()
+        #expect(try Data(contentsOf: temp.url.appending(path: "b/shared")).count == 3)
+    }
+
+    @Test func aFileGoneSinceThePreviewIsStillCopied() async throws {
+        let temp = try TempFolder()
+        let app = try await plannedReplace(.copy, temp)
+        try FileManager.default.removeItem(at: temp.url.appending(path: "b/shared"))
+        app.runOperation()
+        await app.jobs.finished()
+        #expect(try Data(contentsOf: temp.url.appending(path: "b/shared")).count == 3)
+    }
+
+    @Test func aLockedFileIsRefusedInThePreview() async throws {
+        let temp = try TempFolder()
+        let (app, left, _) = try await setup(temp)
+        let locked = try temp.file("a/locked")
+        chflags(locked.path, UInt32(UF_IMMUTABLE))
+        defer { chflags(locked.path, 0) }
+        await reload(left)
+        left.setCursor(1)
+        app.begin(.move)
+        await app.planned()
+        #expect(app.pending == nil)
+        #expect(app.message == "locked or its folder is locked, so it can't be moved.")
     }
 
     @Test func keepBothPreviewsAndWritesTheFreeName() async throws {
